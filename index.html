@@ -58,6 +58,7 @@ canvas{display:block;position:fixed;top:0;left:0}
 <div class="hud-row"><span class="hud-label">Throughput</span><span class="hud-val" id="hThruput">0</span></div>
 <div class="hud-row"><span class="hud-label">Negotiations</span><span class="hud-val" id="hNeg">0</span></div>
 <div class="hud-row"><span class="hud-label">Collisions</span><span class="hud-val" id="hCol">0</span></div>
+<div class="hud-row"><span class="hud-label">Near misses</span><span class="hud-val" id="hNear">0</span></div>
 <div class="hud-row"><span class="hud-label">Avg delay</span><span class="hud-val" id="hDelay">0ms</span></div>
 </div>
 <div id="log"></div>
@@ -67,6 +68,7 @@ canvas{display:block;position:fixed;top:0;left:0}
 <button class="cbtn" onclick="removeCar()">− Car</button>
 <button class="cbtn" id="pauseBtn" onclick="togglePause()">Pause</button>
 <button class="cbtn active" id="autoPauseBtn" onclick="toggleAutoPause()">⏸ on crash</button>
+<button class="cbtn" id="hitboxBtn" onclick="toggleHitboxes()">Hitboxes</button>
 </div>
 <div id="forensics">
 <button class="close-btn" onclick="closeForensics()">✕</button>
@@ -632,7 +634,7 @@ function renderForensicsPanel(report){
     return html;
   };
 
-  let html=`<div class="section-title">Collision @ t=${report.time}s — overlap: ${report.overlapDist}px</div>`;
+  let html=`<div class="section-title">Collision @ t=${report.time}s — center dist: ${report.overlapDist}px, OBB overlap: ${report.obbOverlap||'?'}px</div>`;
   html+=carTable('Car A',report.carA);
   html+=carTable('Car B',report.carB);
   html+=`<div class="section-title">Diagnoses</div>`;
@@ -657,27 +659,107 @@ function toggleAutoPause(){
   document.getElementById('autoPauseBtn').classList.toggle('active',autoPauseOnCollision);
 }
 
-// ─── COLLISION DETECTION ───
+// ─── OBB (Oriented Bounding Box) COLLISION ───
+// Car dimensions in virtual coords
+const CAR_HALF_L=8, CAR_HALF_W=4;
+let showHitboxes=false;
+let nearMissCount=0;
+
+function getCarOBB(car){
+  const loop=car.getLoop();
+  const pos=posOnPath(loop,car.dist);
+  const dir=dirOnPath(loop,car.dist);
+  const angle=Math.atan2(dir.dy,dir.dx);
+  const cos=Math.cos(angle),sin=Math.sin(angle);
+  // 4 corners of the car rectangle
+  const corners=[];
+  for(const[lx,ly]of[[-CAR_HALF_L,-CAR_HALF_W],[ CAR_HALF_L,-CAR_HALF_W],
+                       [ CAR_HALF_L, CAR_HALF_W],[-CAR_HALF_L, CAR_HALF_W]]){
+    corners.push({x:pos.x+lx*cos-ly*sin, y:pos.y+lx*sin+ly*cos});
+  }
+  // Two axes (unit vectors along car's length and width)
+  const axes=[{x:cos,y:sin},{x:-sin,y:cos}];
+  return{pos,angle,corners,axes};
+}
+
+function projectOnAxis(corners,axis){
+  let min=Infinity,max=-Infinity;
+  for(const c of corners){
+    const p=c.x*axis.x+c.y*axis.y;
+    if(p<min)min=p;if(p>max)max=p;
+  }
+  return{min,max};
+}
+
+function obbOverlap(obbA,obbB){
+  // Separating Axis Theorem: test all 4 axes (2 per OBB)
+  const allAxes=[...obbA.axes,...obbB.axes];
+  let minOverlap=Infinity;
+  for(const axis of allAxes){
+    const pA=projectOnAxis(obbA.corners,axis);
+    const pB=projectOnAxis(obbB.corners,axis);
+    const overlap=Math.min(pA.max-pB.min,pB.max-pA.min);
+    if(overlap<=0)return{hit:false,overlap:0};
+    if(overlap<minOverlap)minOverlap=overlap;
+  }
+  return{hit:true,overlap:minOverlap};
+}
+
+function toggleHitboxes(){
+  showHitboxes=!showHitboxes;
+  document.getElementById('hitboxBtn').classList.toggle('active',showHitboxes);
+}
+
+function drawHitboxes(){
+  if(!showHitboxes)return;
+  ctx.save();
+  for(const car of cars){
+    const obb=getCarOBB(car);
+    // Draw the OBB outline
+    const isNearIntersection=Math.abs(obb.pos.x-ROAD_CENTER_X)<50&&Math.abs(obb.pos.y-ROAD_CENTER_Y)<50;
+    ctx.strokeStyle=isNearIntersection?'rgba(255,100,100,0.6)':'rgba(100,200,255,0.25)';
+    ctx.lineWidth=vs(1);
+    ctx.beginPath();
+    ctx.moveTo(vx(obb.corners[0].x),vy(obb.corners[0].y));
+    for(let i=1;i<4;i++)ctx.lineTo(vx(obb.corners[i].x),vy(obb.corners[i].y));
+    ctx.closePath();ctx.stroke();
+    // Center dot
+    ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.beginPath();ctx.arc(vx(obb.pos.x),vy(obb.pos.y),vs(1.5),0,Math.PI*2);ctx.fill();
+    // Car ID label
+    if(isNearIntersection){
+      ctx.fillStyle='rgba(255,200,100,0.7)';
+      ctx.font=`${vs(7)}px monospace`;ctx.textAlign='center';
+      ctx.fillText(`#${car.id} ${car.state}`,vx(obb.pos.x),vy(obb.pos.y)+vs(12));
+    }
+  }
+  ctx.restore();
+}
+
+// ─── COLLISION DETECTION (OBB-based) ───
 function detectCollisions(simTime){
   for(const a of cars){
     for(const b of cars){
       if(a.loop===b.loop)continue;
       if(a.id>=b.id)continue;
-      const la=a.getLoop(),lb=b.getLoop();
-      const pa=posOnPath(la,a.dist),pb=posOnPath(lb,b.dist);
-      const dx=pa.x-pb.x,dy=pa.y-pb.y;
-      const dist=Math.sqrt(dx*dx+dy*dy);
-      if(dist<12){
+      const obbA=getCarOBB(a), obbB=getCarOBB(b);
+      const result=obbOverlap(obbA,obbB);
+      const centerDx=obbA.pos.x-obbB.pos.x,centerDy=obbA.pos.y-obbB.pos.y;
+      const centerDist=Math.sqrt(centerDx*centerDx+centerDy*centerDy);
+
+      if(result.hit){
         if(a.collideCooldown<=0&&b.collideCooldown<=0){
           a.colliding=true;b.colliding=true;
           a.collideCooldown=1;b.collideCooldown=1;
-          intersection.registerCollision((pa.x+pb.x)/2,(pa.y+pb.y)/2,simTime);
-          addLog(`⚠ COLLISION: Car ${a.id} (${a.loop}) × Car ${b.id} (${b.loop})`);
+          const mx=(obbA.pos.x+obbB.pos.x)/2, my=(obbA.pos.y+obbB.pos.y)/2;
+          intersection.registerCollision(mx,my,simTime);
+          addLog(`⚠ COLLISION: Car ${a.id} (${a.loop}) × Car ${b.id} (${b.loop}) — overlap ${result.overlap.toFixed(1)}px, centers ${centerDist.toFixed(1)}px`);
           // ─── FORENSICS CAPTURE ───
-          const report=buildForensicReport(a,b,pa,pb,dist,simTime);
+          const report=buildForensicReport(a,b,obbA.pos,obbB.pos,centerDist,simTime);
+          report.obbOverlap=Math.round(result.overlap*10)/10;
           collisionReports.push(report);
           console.group(`%c⚠ COLLISION #${intersection.collisionCount} @ t=${report.time}s`,'color:#ff4060;font-size:14px;font-weight:bold');
-          console.log('%cFull forensic report:','color:#ffaa40',report);
+          console.log('%cFull forensic report:','color:#ffaa40',JSON.parse(JSON.stringify(report)));
           console.log('%cCar A:','color:#40c0f0',report.carA);
           console.log('%cCar B:','color:#e6a04a',report.carB);
           console.log('%cDiagnoses:','color:#ff6060',report.diagnoses);
@@ -689,6 +771,12 @@ function detectCollisions(simTime){
             document.getElementById('pauseBtn').classList.add('active');
             renderForensicsPanel(report);
           }
+        }
+      }else if(centerDist<20){
+        // Near miss tracking
+        nearMissCount++;
+        if(nearMissCount%5===1){
+          addLog(`⚡ Near miss: Car ${a.id}×${b.id} — ${centerDist.toFixed(1)}px`);
         }
       }
     }
@@ -895,6 +983,7 @@ function drawHUD(){
   document.getElementById('hThruput').textContent=intersection.totalThruput;
   document.getElementById('hNeg').textContent=intersection.totalNegotiations;
   document.getElementById('hCol').textContent=intersection.collisionCount;
+  document.getElementById('hNear').textContent=nearMissCount;
   document.getElementById('hDelay').textContent=Math.round(intersection.avgDelay)+'ms';
   const logEl=document.getElementById('log');
   logEl.innerHTML=logEntries.map((e,i)=>
@@ -980,6 +1069,7 @@ function draw(){
     const pa=posOnPath(a.getLoop(),a.dist);const pb=posOnPath(b.getLoop(),b.dist);return pa.y-pb.y;
   });
   for(const car of sorted)drawCar(car);
+  drawHitboxes();
   drawHUD();
 }
 
