@@ -247,8 +247,16 @@ class SmartIntersection{
 
     this.totalNegotiations++;
 
-    // Check for conflicts with cross-traffic
+    // GROUND TRUTH CHECK: if cross-traffic is physically in the zone RIGHT NOW,
+    // don't issue clearance regardless of what reservations say
     const otherLoop=car.loop==='H'?'V':'H';
+    const physicalBlocker=cars.find(c=>c.loop===otherLoop&&c._isInZone(c.getLoop()));
+    if(physicalBlocker){
+      // Zone is physically occupied — deny clearance
+      return null;
+    }
+
+    // Check for conflicts with cross-traffic reservations
     if(!this._hasConflict(otherLoop,enterTime-CAR_ZONE_PAD,exitTime+CAR_ZONE_PAD)){
       // Clear! Reserve and go at full speed
       this._reserve(car.id,car.loop,enterTime-CAR_ZONE_PAD,exitTime+CAR_ZONE_PAD);
@@ -436,8 +444,18 @@ class Car{
 
       case STATE.CLEARED:{
         // We have a reservation. Maintain assigned speed.
-        // If we're now in the zone, transition
+        // If we're now in the zone, transition — BUT first check ground truth
         if(inZoneNow){
+          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is still inside
+          const crossLoop=this.loop==='H'?'V':'H';
+          const crossBlocker=allCars.find(c=>c.loop===crossLoop&&c._isInZone(c.getLoop()));
+          if(crossBlocker){
+            // Cross-traffic is STILL physically in the zone — hard stop!
+            // This overrides the reservation. Safety > schedule.
+            this.speed=0;
+            addLog(`🛑 Car ${this.id} HELD — Car ${crossBlocker.id} (${crossBlocker.loop}) still in zone`);
+            break;
+          }
           this.state=STATE.IN_ZONE;
           break;
         }
@@ -469,11 +487,19 @@ class Car{
       }
 
       case STATE.IN_ZONE:{
-        // Go through at base speed (or clearance speed for consistency)
-        this.speed=this.clearance?this.clearance.arrivalSpeed:this.baseSpeed;
-        // Check if car-following needed even in zone
+        // CRITICAL: Maintain clearance speed through the zone.
+        // The reservation contract guarantees we exit on time ONLY if
+        // we hold this speed. Car-following must NOT override it.
+        const zoneSpeed=this.clearance?this.clearance.arrivalSpeed:this.baseSpeed;
+        this.speed=zoneSpeed;
+        // Only apply car-following if same-loop car is VERY close (emergency brake)
+        // but never below 80% of clearance speed — the reservation depends on it
         const followSpeed2=this._getFollowSpeed(allCars,loop);
-        this.speed=Math.min(this.speed,followSpeed2);
+        if(followSpeed2<zoneSpeed){
+          // Emergency: car directly ahead. Clamp to minimum 80% of clearance
+          // to preserve reservation timing as much as possible
+          this.speed=Math.max(zoneSpeed*0.8,Math.min(zoneSpeed,followSpeed2));
+        }
         if(!inZoneNow){
           // Exited zone
           intersection.releaseCar(this.id);
