@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>Smart Intersection</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#06060e;overflow:hidden;font-family:'SF Pro Display','Segoe UI',system-ui,sans-serif;color:#b0b0cc}
+canvas{display:block;position:fixed;top:0;left:0}
+#startScreen{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;background:#06060e;transition:opacity .8s,transform .8s}
+#startScreen.hidden{opacity:0;pointer-events:none;transform:scale(1.05)}
+#startScreen h1{font-size:clamp(28px,5vw,52px);font-weight:200;letter-spacing:8px;color:#d0d0f0;text-transform:uppercase}
+#startScreen h2{font-size:clamp(11px,2vw,15px);font-weight:300;letter-spacing:5px;color:#5050a0;margin-top:6px;text-transform:uppercase}
+#startScreen .desc{max-width:480px;text-align:center;color:#7070a0;margin:32px 0;font-size:clamp(12px,1.5vw,14px);line-height:1.9;padding:0 20px}
+#startBtn{padding:14px 52px;border:1px solid #3a3a80;background:transparent;color:#9090d0;font-size:13px;letter-spacing:5px;cursor:pointer;border-radius:4px;transition:all .3s;text-transform:uppercase;font-family:inherit}
+#startBtn:hover{background:#3a3a8018;border-color:#7070c0;color:#d0d0ff;box-shadow:0 0 30px #3a3a8030}
+#hud{position:fixed;top:16px;left:16px;z-index:5;font-size:11px;pointer-events:none}
+.hud-row{margin-bottom:3px;display:flex;gap:6px}
+.hud-label{color:#4a4a80;min-width:90px}
+.hud-val{color:#8888bb;font-variant-numeric:tabular-nums}
+#log{position:fixed;bottom:16px;left:16px;z-index:5;font-size:10px;max-height:100px;overflow:hidden;pointer-events:none;width:340px}
+.log-entry{margin-bottom:2px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .4s}
+.log-entry.old{opacity:.2}
+#legend{position:fixed;bottom:16px;right:16px;z-index:5;font-size:10px;pointer-events:none;text-align:right}
+.legend-row{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-bottom:2px;opacity:.5}
+.legend-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+#controls{position:fixed;top:16px;right:16px;z-index:5;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:220px}
+.cbtn{padding:5px 12px;border:1px solid #2a2a60;background:#0a0a18;color:#7070a0;font-size:10px;cursor:pointer;border-radius:3px;letter-spacing:1px;transition:all .2s;font-family:inherit;text-transform:uppercase}
+.cbtn:hover{border-color:#5050a0;color:#b0b0e0}
+.cbtn.active{background:#2a2a5030;border-color:#6060b0;color:#c0c0f0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="startScreen">
+<h1>Smart Intersection</h1>
+<h2>Spacetime Traffic Controller</h2>
+<p class="desc">Cars approach a shared crossroads and request safe-passage windows from an AI intersection controller. It assigns each car a velocity that guarantees collision-free transit — like air traffic control, but for roads.</p>
+<button id="startBtn" onclick="startSim()">Begin Simulation</button>
+</div>
+<div id="hud">
+<div class="hud-row"><span class="hud-label">Cars</span><span class="hud-val" id="hCarCount">0</span></div>
+<div class="hud-row"><span class="hud-label">Throughput</span><span class="hud-val" id="hThruput">0</span></div>
+<div class="hud-row"><span class="hud-label">Negotiations</span><span class="hud-val" id="hNeg">0</span></div>
+<div class="hud-row"><span class="hud-label">Avg delay</span><span class="hud-val" id="hDelay">0ms</span></div>
+</div>
+<div id="log"></div>
+<div id="controls">
+<button class="cbtn" onclick="addCar('H')">+ Horiz</button>
+<button class="cbtn" onclick="addCar('V')">+ Vert</button>
+<button class="cbtn" onclick="removeCar()">− Car</button>
+<button class="cbtn" id="pauseBtn" onclick="togglePause()">Pause</button>
+</div>
+<div id="legend">
+<div class="legend-row"><span>Cruising</span><div class="legend-dot" style="background:#4ae68a"></div></div>
+<div class="legend-row"><span>Negotiating</span><div class="legend-dot" style="background:#f0c040"></div></div>
+<div class="legend-row"><span>Slowed</span><div class="legend-dot" style="background:#e07030"></div></div>
+<div class="legend-row"><span>Intersection zone</span><div class="legend-dot" style="background:#6060ff40;border:1px solid #6060ff80"></div></div>
+</div>
+<script>
+// ─── CANVAS SETUP ───
+const cvs=document.getElementById('c'),ctx=cvs.getContext('2d');
+let W,H,SC;const VW=1200,VH=800;
+function resize(){W=cvs.width=innerWidth;H=cvs.height=innerHeight;SC=Math.min(W/VW,H/VH)}
+addEventListener('resize',resize);resize();
+function vx(x){return W/2+(x-VW/2)*SC}
+function vy(y){return H/2+(y-VH/2)*SC}
+function vs(s){return s*SC}
+
+// ─── PATH SYSTEM ───
+// Each loop = 2 lanes (2-way road) forming a closed circuit via U-turns at ends
+// H-road: y=385 (right), y=415 (left), x: 100..1100, U-turns at ends
+// V-road: x=585 (up), x=615 (down), y: 70..730, U-turns at ends
+
+const LANE_SEP=30; // center-to-center
+const ROAD_CENTER_Y=400, ROAD_CENTER_X=600;
+const H_TOP=ROAD_CENTER_Y-LANE_SEP/2, H_BOT=ROAD_CENTER_Y+LANE_SEP/2;
+const V_LEFT=ROAD_CENTER_X-LANE_SEP/2, V_RIGHT=ROAD_CENTER_X+LANE_SEP/2;
+const H_MIN_X=100, H_MAX_X=1100;
+const V_MIN_Y=70, V_MAX_Y=730;
+const UTURN_R=LANE_SEP/2;
+
+function sampleLine(x1,y1,x2,y2,step){
+  const pts=[];const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+  const n=Math.max(1,Math.round(len/step));
+  for(let i=0;i<n;i++){const t=i/n;pts.push({x:x1+dx*t,y:y1+dy*t})}
+  return pts;
+}
+function sampleArc(cx,cy,r,a0,a1,step){
+  const pts=[];const arcLen=Math.abs(a1-a0)*r;
+  const n=Math.max(1,Math.round(arcLen/step));
+  for(let i=0;i<n;i++){const t=i/n;const a=a0+(a1-a0)*t;pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})}
+  return pts;
+}
+
+function buildLoop(lane,isHoriz){
+  const S=2; // sample spacing
+  let pts=[];
+  if(isHoriz){
+    // lane='top'(right-going) or 'bot'(left-going)
+    // Full loop: right on top lane, U-turn right, left on bot lane, U-turn left
+    const yT=H_TOP,yB=H_BOT;
+    // Top lane: left to right
+    pts=pts.concat(sampleLine(H_MIN_X,yT,H_MAX_X,yT,S));
+    // Right U-turn: top→bottom (clockwise arc)
+    pts=pts.concat(sampleArc(H_MAX_X,ROAD_CENTER_Y,UTURN_R,-Math.PI/2,Math.PI/2,S));
+    // Bottom lane: right to left
+    pts=pts.concat(sampleLine(H_MAX_X,yB,H_MIN_X,yB,S));
+    // Left U-turn: bottom→top
+    pts=pts.concat(sampleArc(H_MIN_X,ROAD_CENTER_Y,UTURN_R,Math.PI/2,-Math.PI/2,S));
+  }else{
+    // Vertical loop: down on right lane, U-turn bottom, up on left lane, U-turn top
+    const xR=V_RIGHT,xL=V_LEFT;
+    // Right lane: top to bottom (going down)
+    pts=pts.concat(sampleLine(xR,V_MIN_Y,xR,V_MAX_Y,S));
+    // Bottom U-turn: right→left
+    pts=pts.concat(sampleArc(ROAD_CENTER_X,V_MAX_Y,UTURN_R,0,Math.PI,S));
+    // Left lane: bottom to top (going up)
+    pts=pts.concat(sampleLine(xL,V_MAX_Y,xL,V_MIN_Y,S));
+    // Top U-turn: left→right
+    pts=pts.concat(sampleArc(ROAD_CENTER_X,V_MIN_Y,UTURN_R,Math.PI,2*Math.PI,S));
+  }
+  // Compute cumulative distances
+  const dists=[0];
+  for(let i=1;i<pts.length;i++){
+    const dx=pts[i].x-pts[i-1].x,dy=pts[i].y-pts[i-1].y;
+    dists.push(dists[i-1]+Math.sqrt(dx*dx+dy*dy));
+  }
+  const totalLen=dists[dists.length-1];
+
+  // Find intersection crossing distances (where path is near center)
+  const intDists=[];
+  const IZ=35; // intersection zone half-size
+  for(let i=0;i<pts.length;i++){
+    const dx=pts[i].x-ROAD_CENTER_X,dy=pts[i].y-ROAD_CENTER_Y;
+    if(Math.abs(dx)<IZ&&Math.abs(dy)<IZ){
+      if(intDists.length===0||dists[i]-intDists[intDists.length-1].d>50){
+        intDists.push({d:dists[i],idx:i});
+      }else{
+        // extend last zone
+        intDists[intDists.length-1].dEnd=dists[i];
+      }
+    }
+  }
+  // finalize zones
+  for(const z of intDists){if(!z.dEnd)z.dEnd=z.d+5;}
+
+  return {pts,dists,totalLen,intZones:intDists};
+}
+
+const loopH=buildLoop('H',true);
+const loopV=buildLoop('V',false);
+
+function posOnPath(loop,dist){
+  const d=((dist%loop.totalLen)+loop.totalLen)%loop.totalLen;
+  let lo=0,hi=loop.dists.length-1;
+  while(lo<hi-1){const mid=(lo+hi)>>1;if(loop.dists[mid]<=d)lo=mid;else hi=mid;}
+  const seg=loop.dists[hi]-loop.dists[lo];
+  const t=seg>0?(d-loop.dists[lo])/seg:0;
+  return{
+    x:loop.pts[lo].x+(loop.pts[hi].x-loop.pts[lo].x)*t,
+    y:loop.pts[lo].y+(loop.pts[hi].y-loop.pts[lo].y)*t
+  };
+}
+function dirOnPath(loop,dist){
+  const d0=((dist%loop.totalLen)+loop.totalLen)%loop.totalLen;
+  const d1=(d0+4)%loop.totalLen;
+  const p0=posOnPath(loop,d0),p1=posOnPath(loop,d1);
+  const dx=p1.x-p0.x,dy=p1.y-p0.y;
+  const len=Math.sqrt(dx*dx+dy*dy)||1;
+  return{dx:dx/len,dy:dy/len};
+}
+
+// ─── SMART INTERSECTION ───
+const ZONE_RADIUS=35;
+const APPROACH_DIST=220;
+const SAFETY_BUFFER=0.15; // seconds buffer between reservations
+
+class SmartIntersection{
+  constructor(){
+    this.reservations=[];// {carId,loop,startTime,endTime}
+    this.totalNegotiations=0;
+    this.totalThruput=0;
+    this.totalDelayMs=0;
+    this.delayCount=0;
+    this.activeNegotiations=new Map();// carId → {lineX,lineY,status}
+    this.pulsePhase=0;
+  }
+
+  // Returns {speed, status} or null if car doesn't need management
+  requestPassage(car,simTime){
+    const loop=car.loop==='H'?loopH:loopV;
+    // Find nearest upcoming intersection zone
+    let bestZone=null,bestDist=Infinity;
+    for(const z of loop.intZones){
+      // Distance ahead to zone start
+      let ahead=(z.d-car.dist%loop.totalLen+loop.totalLen)%loop.totalLen;
+      if(ahead<2)ahead+=loop.totalLen; // just passed it
+      if(ahead<bestDist&&ahead<APPROACH_DIST){bestDist=ahead;bestZone=z;}
+    }
+    if(!bestZone)return null;
+
+    const dist=bestDist;
+    const zoneWidth=bestZone.dEnd-bestZone.d+10;
+    const arrivalTime=simTime+dist/car.speed;
+    const transitDur=zoneWidth/car.speed;
+    const reqStart=arrivalTime;
+    const reqEnd=arrivalTime+transitDur;
+
+    // Check conflicts with OTHER loop's reservations
+    const otherLoop=car.loop==='H'?'V':'H';
+    const conflicts=this.reservations.filter(r=>
+      r.loop===otherLoop&&r.endTime>reqStart-SAFETY_BUFFER&&r.startTime<reqEnd+SAFETY_BUFFER
+    );
+
+    this.totalNegotiations++;
+
+    if(conflicts.length===0){
+      this._reserve(car.id,car.loop,reqStart,reqEnd);
+      this.activeNegotiations.set(car.id,{status:'approved',t:simTime});
+      return{speed:car.baseSpeed,status:'approved'};
+    }
+
+    // Find safe window after conflicts
+    const lastEnd=Math.max(...conflicts.map(c=>c.endTime))+SAFETY_BUFFER;
+    const safeArrival=lastEnd;
+    const timeToArrival=safeArrival-simTime;
+
+    if(timeToArrival<=0||dist/timeToArrival>car.baseSpeed*1.3){
+      // Can't make a good window, just slow way down and retry next frame
+      this.activeNegotiations.set(car.id,{status:'slowed',t:simTime});
+      const delay=(safeArrival-arrivalTime)*1000;
+      this.totalDelayMs+=Math.max(0,delay);this.delayCount++;
+      return{speed:Math.max(15,car.baseSpeed*0.15),status:'slowed'};
+    }
+
+    const newSpeed=dist/timeToArrival;
+    const clampSpeed=Math.max(15,Math.min(car.baseSpeed*1.2,newSpeed));
+    const newTransit=zoneWidth/clampSpeed;
+    this._reserve(car.id,car.loop,safeArrival,safeArrival+newTransit);
+
+    const delay=(safeArrival-arrivalTime)*1000;
+    this.totalDelayMs+=Math.max(0,delay);this.delayCount++;
+
+    this.activeNegotiations.set(car.id,{status:'adjusted',t:simTime});
+    return{speed:clampSpeed,status:'adjusted'};
+  }
+
+  _reserve(carId,loop,start,end){
+    this.reservations=this.reservations.filter(r=>r.carId!==carId);
+    this.reservations.push({carId,loop,startTime:start,endTime:end});
+  }
+
+  notifyExit(carId){
+    this.reservations=this.reservations.filter(r=>r.carId!==carId);
+    this.activeNegotiations.delete(carId);
+    this.totalThruput++;
+  }
+
+  cleanup(simTime){
+    this.reservations=this.reservations.filter(r=>r.endTime>simTime-3);
+    // Clean old negotiations
+    for(const[id,n]of this.activeNegotiations){
+      if(simTime-n.t>2)this.activeNegotiations.delete(id);
+    }
+  }
+
+  get avgDelay(){return this.delayCount>0?this.totalDelayMs/this.delayCount:0;}
+}
+
+const intersection=new SmartIntersection();
+
+// ─── CAR CLASS ───
+const CAR_COLORS=['#4ae6aa','#4ac8e6','#e6a04a','#e64a7b','#a04ae6','#e6e64a','#4ae6e6','#e6704a'];
+let nextCarId=0;
+
+class Car{
+  constructor(loopId,dist){
+    this.id=nextCarId++;
+    this.loop=loopId;// 'H' or 'V'
+    this.dist=dist;
+    this.baseSpeed=60+Math.random()*40;// px/s
+    this.speed=this.baseSpeed;
+    this.targetSpeed=this.baseSpeed;
+    this.color=CAR_COLORS[this.id%CAR_COLORS.length];
+    this.status='cruising';// cruising|negotiating|slowed|approved
+    this.inZone=false;
+    this.wasInZone=false;
+    this.negotiating=false;
+    this.trail=[];
+  }
+
+  getLoop(){return this.loop==='H'?loopH:loopV;}
+
+  update(dt,simTime,allCars){
+    const loop=this.getLoop();
+
+    // Check if currently in intersection zone
+    const pos=posOnPath(loop,this.dist);
+    const dx=pos.x-ROAD_CENTER_X,dy=pos.y-ROAD_CENTER_Y;
+    const wasInZone=this.inZone;
+    this.inZone=Math.abs(dx)<ZONE_RADIUS&&Math.abs(dy)<ZONE_RADIUS;
+
+    // If just exited zone, notify intersection
+    if(wasInZone&&!this.inZone){
+      intersection.notifyExit(this.id);
+      this.status='cruising';
+      this.targetSpeed=this.baseSpeed;
+      this.negotiating=false;
+    }
+
+    // If approaching zone and not in it, negotiate
+    if(!this.inZone){
+      let nearZone=false;
+      for(const z of loop.intZones){
+        let ahead=(z.d-this.dist%loop.totalLen+loop.totalLen)%loop.totalLen;
+        if(ahead<2)ahead+=loop.totalLen;
+        if(ahead<APPROACH_DIST){nearZone=true;break;}
+      }
+      if(nearZone){
+        const result=intersection.requestPassage(this,simTime);
+        if(result){
+          this.targetSpeed=result.speed;
+          this.status=result.status==='approved'?'approved':result.status==='adjusted'?'negotiating':'slowed';
+          this.negotiating=true;
+        }
+      }else{
+        if(!this.inZone){
+          this.targetSpeed=this.baseSpeed;
+          this.status='cruising';
+          this.negotiating=false;
+        }
+      }
+    }
+
+    // Car-following: don't rear-end same-loop cars
+    let minAhead=Infinity;
+    for(const other of allCars){
+      if(other.id===this.id||other.loop!==this.loop)continue;
+      let ahead=(other.dist-this.dist+loop.totalLen)%loop.totalLen;
+      if(ahead>0&&ahead<minAhead)minAhead=ahead;
+    }
+    const safeFollow=40;
+    if(minAhead<safeFollow){
+      this.targetSpeed=Math.min(this.targetSpeed,Math.max(5,(minAhead-15)*2));
+    }
+
+    // Smooth speed transition
+    const speedLerp=dt*3;
+    this.speed+=(this.targetSpeed-this.speed)*Math.min(1,speedLerp);
+    this.speed=Math.max(2,this.speed);
+
+    // Move
+    this.dist+=this.speed*dt;
+    this.dist=this.dist%loop.totalLen;
+
+    // Trail
+    const p=posOnPath(loop,this.dist);
+    this.trail.push({x:p.x,y:p.y,t:simTime});
+    while(this.trail.length>0&&simTime-this.trail[0].t>0.5)this.trail.shift();
+  }
+}
+// ─── SIMULATION STATE ───
+let cars=[];
+let simTime=0;
+let paused=false;
+let running=false;
+let logEntries=[];
+
+function addCar(loopId){
+  const loop=loopId==='H'?loopH:loopV;
+  // Find a spot with no overlap
+  for(let attempts=0;attempts<50;attempts++){
+    const d=Math.random()*loop.totalLen;
+    let ok=true;
+    for(const c of cars){
+      if(c.loop!==loopId)continue;
+      const diff=Math.abs(c.dist-d);
+      const wrap=loop.totalLen-diff;
+      if(Math.min(diff,wrap)<50){ok=false;break;}
+    }
+    if(ok){cars.push(new Car(loopId,d));return true;}
+  }
+  return false;
+}
+
+function removeCar(){
+  if(cars.length>0)cars.pop();
+}
+
+function initCars(){
+  cars=[];
+  // 6 horizontal, 6 vertical
+  for(let i=0;i<6;i++)addCar('H');
+  for(let i=0;i<6;i++)addCar('V');
+}
+
+function addLog(msg){
+  logEntries.unshift({msg,t:simTime});
+  if(logEntries.length>8)logEntries.pop();
+}
+
+// ─── RENDERING ───
+function drawRoads(){
+  ctx.save();
+  // Road surfaces
+  const roadW=LANE_SEP+20;
+
+  // Horizontal road
+  ctx.fillStyle='#151525';
+  ctx.fillRect(vx(H_MIN_X-UTURN_R-5),vy(ROAD_CENTER_Y-roadW/2),vs(H_MAX_X-H_MIN_X+UTURN_R*2+10),vs(roadW));
+
+  // Vertical road
+  ctx.fillRect(vx(ROAD_CENTER_X-roadW/2),vy(V_MIN_Y-UTURN_R-5),vs(roadW),vs(V_MAX_Y-V_MIN_Y+UTURN_R*2+10));
+
+  // U-turns (semicircle road caps)
+  ctx.fillStyle='#151525';
+  for(const[cx2,cy2]of[[H_MAX_X,ROAD_CENTER_Y],[H_MIN_X,ROAD_CENTER_Y]]){
+    ctx.beginPath();ctx.arc(vx(cx2),vy(cy2),vs(roadW/2),0,Math.PI*2);ctx.fill();
+  }
+  for(const[cx2,cy2]of[[ROAD_CENTER_X,V_MAX_Y],[ROAD_CENTER_X,V_MIN_Y]]){
+    ctx.beginPath();ctx.arc(vx(cx2),vy(cy2),vs(roadW/2),0,Math.PI*2);ctx.fill();
+  }
+
+  // Center lines (dashed)
+  ctx.strokeStyle='#2a2a45';ctx.lineWidth=vs(1);ctx.setLineDash([vs(8),vs(8)]);
+  // Horizontal center
+  ctx.beginPath();ctx.moveTo(vx(H_MIN_X),vy(ROAD_CENTER_Y));ctx.lineTo(vx(H_MAX_X),vy(ROAD_CENTER_Y));ctx.stroke();
+  // Vertical center
+  ctx.beginPath();ctx.moveTo(vx(ROAD_CENTER_X),vy(V_MIN_Y));ctx.lineTo(vx(ROAD_CENTER_X),vy(V_MAX_Y));ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Lane direction arrows
+  ctx.fillStyle='#20203a';ctx.font=vs(10)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let x=200;x<1100;x+=120){
+    ctx.fillText('→',vx(x),vy(H_TOP));
+    ctx.fillText('←',vx(x),vy(H_BOT));
+  }
+  for(let y=120;y<730;y+=120){
+    ctx.fillText('↓',vx(V_RIGHT),vy(y));
+    ctx.fillText('↑',vx(V_LEFT),vy(y));
+  }
+
+  ctx.restore();
+}
+
+function drawIntersectionZone(){
+  ctx.save();
+  const pulse=0.5+0.5*Math.sin(simTime*3);
+  const activeCount=intersection.activeNegotiations.size;
+  const alpha=activeCount>0?0.12+pulse*0.08:0.05;
+
+  // Zone glow
+  ctx.fillStyle=`rgba(80,80,255,${alpha})`;
+  ctx.beginPath();
+  ctx.roundRect(vx(ROAD_CENTER_X-ZONE_RADIUS),vy(ROAD_CENTER_Y-ZONE_RADIUS),vs(ZONE_RADIUS*2),vs(ZONE_RADIUS*2),vs(6));
+  ctx.fill();
+
+  // Zone border
+  ctx.strokeStyle=`rgba(100,100,255,${alpha*2})`;
+  ctx.lineWidth=vs(1);
+  ctx.stroke();
+
+  // Center brain dot
+  if(activeCount>0){
+    const r=vs(4+pulse*2);
+    const grad=ctx.createRadialGradient(vx(ROAD_CENTER_X),vy(ROAD_CENTER_Y),0,vx(ROAD_CENTER_X),vy(ROAD_CENTER_Y),r);
+    grad.addColorStop(0,`rgba(140,140,255,${0.6+pulse*0.3})`);
+    grad.addColorStop(1,'rgba(140,140,255,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath();ctx.arc(vx(ROAD_CENTER_X),vy(ROAD_CENTER_Y),r,0,Math.PI*2);ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawNegotiationLines(){
+  ctx.save();
+  for(const car of cars){
+    if(!car.negotiating)continue;
+    const loop=car.getLoop();
+    const pos=posOnPath(loop,car.dist);
+    const neg=intersection.activeNegotiations.get(car.id);
+    if(!neg)continue;
+
+    const statusColor=neg.status==='approved'?'rgba(74,230,138,':'rgba(240,192,64,';
+    const pulse=0.4+0.3*Math.sin(simTime*8);
+
+    // Dotted line to intersection center
+    ctx.strokeStyle=statusColor+pulse+')';
+    ctx.lineWidth=vs(1);
+    ctx.setLineDash([vs(3),vs(5)]);
+    ctx.beginPath();
+    ctx.moveTo(vx(pos.x),vy(pos.y));
+    ctx.lineTo(vx(ROAD_CENTER_X),vy(ROAD_CENTER_Y));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Speed label near car
+    const spd=Math.round(car.speed);
+    ctx.fillStyle=statusColor+'0.7)';
+    ctx.font=`${vs(8)}px monospace`;
+    ctx.textAlign='center';
+    ctx.fillText(spd+'px/s',vx(pos.x),vy(pos.y)-vs(14));
+  }
+  ctx.restore();
+}
+
+function drawCar(car){
+  const loop=car.getLoop();
+  const pos=posOnPath(loop,car.dist);
+  const dir=dirOnPath(loop,car.dist);
+  const angle=Math.atan2(dir.dy,dir.dx);
+
+  ctx.save();
+  ctx.translate(vx(pos.x),vy(pos.y));
+  ctx.rotate(angle);
+
+  const carL=vs(16),carW=vs(8);
+
+  // Trail glow
+  if(car.trail.length>2){
+    ctx.save();
+    ctx.rotate(-angle);
+    ctx.translate(-vx(pos.x),-vy(pos.y));
+    for(let i=0;i<car.trail.length-1;i++){
+      const t=car.trail[i];
+      const alpha=i/car.trail.length*0.15;
+      ctx.fillStyle=car.color+Math.round(alpha*255).toString(16).padStart(2,'0');
+      ctx.beginPath();ctx.arc(vx(t.x),vy(t.y),vs(3),0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Status glow
+  let glowColor=car.color;
+  if(car.status==='negotiating')glowColor='#f0c040';
+  else if(car.status==='slowed')glowColor='#e07030';
+  else if(car.status==='approved')glowColor='#4ae68a';
+
+  // Car body shadow/glow
+  ctx.shadowColor=glowColor;
+  ctx.shadowBlur=vs(car.negotiating?12:6);
+
+  // Car body
+  ctx.fillStyle=car.color;
+  ctx.beginPath();
+  ctx.roundRect(-carL/2,-carW/2,carL,carW,vs(3));
+  ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Headlights
+  ctx.fillStyle='rgba(255,255,220,0.8)';
+  ctx.beginPath();ctx.arc(carL/2-vs(1),carW/4-vs(1),vs(1.5),0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(carL/2-vs(1),-carW/4+vs(1),vs(1.5),0,Math.PI*2);ctx.fill();
+
+  // Brake lights (when slowing)
+  if(car.speed<car.baseSpeed*0.7){
+    ctx.fillStyle='rgba(255,50,50,0.9)';
+    ctx.beginPath();ctx.arc(-carL/2+vs(1),carW/4-vs(1),vs(1.2),0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(-carL/2+vs(1),-carW/4+vs(1),vs(1.2),0,Math.PI*2);ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawHUD(){
+  document.getElementById('hCarCount').textContent=cars.length;
+  document.getElementById('hThruput').textContent=intersection.totalThruput;
+  document.getElementById('hNeg').textContent=intersection.totalNegotiations;
+  document.getElementById('hDelay').textContent=Math.round(intersection.avgDelay)+'ms';
+
+  // Log
+  const logEl=document.getElementById('log');
+  logEl.innerHTML=logEntries.map((e,i)=>
+    `<div class="log-entry${i>4?' old':''}" style="color:${i===0?'#8888bb':'#5555886'}">${e.msg}</div>`
+  ).join('');
+}
+// ─── PARTICLES ───
+let particles=[];
+function spawnParticle(x,y,color){
+  particles.push({
+    x,y,
+    vx:(Math.random()-0.5)*40,
+    vy:(Math.random()-0.5)*40,
+    life:0.6+Math.random()*0.4,
+    maxLife:0.6+Math.random()*0.4,
+    color,
+    size:1+Math.random()*2
+  });
+}
+
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    p.life-=dt;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){
+    const alpha=p.life/p.maxLife;
+    ctx.fillStyle=p.color+Math.round(alpha*180).toString(16).padStart(2,'0');
+    ctx.beginPath();ctx.arc(vx(p.x),vy(p.y),vs(p.size*alpha),0,Math.PI*2);ctx.fill();
+  }
+}
+
+// Spawn particles at intersection when negotiating
+function tickIntersectionParticles(){
+  if(intersection.activeNegotiations.size>0&&Math.random()<0.3){
+    spawnParticle(ROAD_CENTER_X+(Math.random()-0.5)*20,ROAD_CENTER_Y+(Math.random()-0.5)*20,'#7070ff');
+  }
+}
+
+// ─── MAIN LOOP ───
+let lastTime=0;
+let logTimer=0;
+
+function frame(ts){
+  if(!running)return;
+  requestAnimationFrame(frame);
+
+  const rawDt=lastTime?Math.min((ts-lastTime)/1000,0.05):0.016;
+  lastTime=ts;
+  if(paused)return draw();
+  const dt=rawDt;
+  simTime+=dt;
+
+  // Update cars
+  for(const car of cars)car.update(dt,simTime,cars);
+
+  // Cleanup old reservations
+  intersection.cleanup(simTime);
+
+  // Particles
+  tickIntersectionParticles();
+  updateParticles(dt);
+
+  // Occasional log
+  logTimer+=dt;
+  if(logTimer>2&&intersection.activeNegotiations.size>0){
+    logTimer=0;
+    const entries=[...intersection.activeNegotiations.entries()];
+    if(entries.length>0){
+      const[id,neg]=entries[Math.floor(Math.random()*entries.length)];
+      const car=cars.find(c=>c.id===id);
+      if(car){
+        const statusText=neg.status==='approved'?'✓ clear':'⚡ rerouted';
+        addLog(`Car ${id} (${car.loop}) ${statusText} @ ${Math.round(car.speed)}px/s`);
+      }
+    }
+  }
+
+  draw();
+}
+
+function draw(){
+  // Clear
+  ctx.fillStyle='#06060e';
+  ctx.fillRect(0,0,W,H);
+
+  // Subtle grid
+  ctx.strokeStyle='#0c0c1a';ctx.lineWidth=1;
+  const gridSize=vs(60);
+  for(let x=vx(0)%gridSize;x<W;x+=gridSize){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=vy(0)%gridSize;y<H;y+=gridSize){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  drawRoads();
+  drawIntersectionZone();
+  drawNegotiationLines();
+  drawParticles();
+
+  // Draw cars (sorted for depth)
+  const sorted=[...cars].sort((a,b)=>{
+    const pa=posOnPath(a.getLoop(),a.dist);
+    const pb=posOnPath(b.getLoop(),b.dist);
+    return pa.y-pb.y;
+  });
+  for(const car of sorted)drawCar(car);
+
+  drawHUD();
+}
+
+// ─── CONTROLS ───
+function togglePause(){
+  paused=!paused;
+  document.getElementById('pauseBtn').textContent=paused?'Resume':'Pause';
+  document.getElementById('pauseBtn').classList.toggle('active',paused);
+}
+
+function startSim(){
+  document.getElementById('startScreen').classList.add('hidden');
+  running=true;
+  initCars();
+  addLog('Simulation started — 12 cars deployed');
+  addLog('SmartIntersection online');
+  requestAnimationFrame(frame);
+}
+
+// Touch/mobile
+document.addEventListener('touchstart',e=>{
+  if(!running)return;
+  const touch=e.touches[0];
+  if(touch.clientX<W/2)addCar('H');else addCar('V');
+},{passive:true});
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if(e.key===' ')togglePause();
+  if(e.key==='h'||e.key==='H')addCar('H');
+  if(e.key==='v'||e.key==='V')addCar('V');
+  if(e.key==='r'||e.key==='R')removeCar();
+});
+
+// ─── STARTUP ───
+resize();
+</script>
+</body>
+</html>
