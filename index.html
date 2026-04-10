@@ -29,6 +29,20 @@ canvas{display:block;position:fixed;top:0;left:0}
 .cbtn{padding:5px 12px;border:1px solid #2a2a60;background:#0a0a18;color:#7070a0;font-size:10px;cursor:pointer;border-radius:3px;letter-spacing:1px;transition:all .2s;font-family:inherit;text-transform:uppercase}
 .cbtn:hover{border-color:#5050a0;color:#b0b0e0}
 .cbtn.active{background:#2a2a5030;border-color:#6060b0;color:#c0c0f0}
+#forensics{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;background:#0a0a1eee;border:1px solid #ff304080;border-radius:8px;padding:20px 28px;max-width:720px;width:90%;max-height:80vh;overflow-y:auto;display:none;font-size:11px;line-height:1.7;box-shadow:0 0 60px #ff204030}
+#forensics.show{display:block}
+#forensics h2{color:#ff5060;font-size:14px;letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;font-weight:400}
+#forensics .close-btn{position:absolute;top:10px;right:14px;background:none;border:none;color:#ff506080;font-size:18px;cursor:pointer}
+#forensics .close-btn:hover{color:#ff5060}
+#forensics table{width:100%;border-collapse:collapse;margin-bottom:14px}
+#forensics th{text-align:left;color:#6060a0;font-weight:400;padding:2px 8px 2px 0;white-space:nowrap;width:140px}
+#forensics td{color:#b0b0dd;padding:2px 0;font-family:'SF Mono',Consolas,monospace;font-size:10px}
+#forensics td.warn{color:#ff6060}
+#forensics td.ok{color:#4ae68a}
+#forensics .section-title{color:#8080c0;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin:12px 0 6px;border-bottom:1px solid #2a2a50;padding-bottom:4px}
+#forensics .res-row{display:flex;gap:8px;font-size:10px;font-family:monospace;padding:2px 0;color:#8888bb}
+#forensics .res-row.highlight{color:#ff8060;background:#ff200010}
+#forensics .hint{color:#6a6a90;font-size:10px;margin-top:10px;font-style:italic}
 </style>
 </head>
 <body>
@@ -52,6 +66,12 @@ canvas{display:block;position:fixed;top:0;left:0}
 <button class="cbtn" onclick="addCar('V')">+ Vert</button>
 <button class="cbtn" onclick="removeCar()">− Car</button>
 <button class="cbtn" id="pauseBtn" onclick="togglePause()">Pause</button>
+<button class="cbtn active" id="autoPauseBtn" onclick="toggleAutoPause()">⏸ on crash</button>
+</div>
+<div id="forensics">
+<button class="close-btn" onclick="closeForensics()">✕</button>
+<h2>⚠ Collision Forensics</h2>
+<div id="forensicsBody"></div>
 </div>
 <div id="legend">
 <div class="legend-row"><span>Cruising</span><div class="legend-dot" style="background:#4ae68a"></div></div>
@@ -508,23 +528,167 @@ class Car{
   }
 }
 
+// ─── COLLISION FORENSICS ───
+let autoPauseOnCollision=true;
+let collisionReports=[];// full forensic history
+
+function snapshotCar(car){
+  const loop=car.getLoop();
+  const pos=posOnPath(loop,car.dist);
+  const inZone=car._isInZone(loop);
+  const zone=intersection._nextZone(car);
+  const aheadToZone=zone?distAhead(loop,car.dist,zone.dStart):null;
+  const reservation=intersection.reservations.find(r=>r.carId===car.id);
+  return{
+    id:car.id,
+    loop:car.loop,
+    state:car.state,
+    speed:Math.round(car.speed*100)/100,
+    baseSpeed:Math.round(car.baseSpeed*100)/100,
+    dist:Math.round(car.dist*100)/100,
+    pos:{x:Math.round(pos.x*10)/10,y:Math.round(pos.y*10)/10},
+    inZone,
+    aheadToZone:aheadToZone!==null?Math.round(aheadToZone*10)/10:null,
+    clearance:car.clearance?{
+      enterTime:Math.round(car.clearance.enterTime*1000)/1000,
+      exitTime:Math.round(car.clearance.exitTime*1000)/1000,
+      arrivalSpeed:Math.round(car.clearance.arrivalSpeed*100)/100,
+      stopDist:Math.round(car.clearance.stopDist*10)/10,
+    }:null,
+    reservation:reservation?{
+      enterTime:Math.round(reservation.enterTime*1000)/1000,
+      exitTime:Math.round(reservation.exitTime*1000)/1000,
+      loop:reservation.loop,
+    }:null,
+    hasReservation:!!reservation,
+  };
+}
+
+function buildForensicReport(a,b,pa,pb,dist,simTime){
+  const snapA=snapshotCar(a);
+  const snapB=snapshotCar(b);
+  const allReservations=intersection.reservations.map(r=>({
+    carId:r.carId,loop:r.loop,
+    enterTime:Math.round(r.enterTime*1000)/1000,
+    exitTime:Math.round(r.exitTime*1000)/1000,
+  }));
+  const report={
+    time:Math.round(simTime*1000)/1000,
+    overlapDist:Math.round(dist*10)/10,
+    carA:snapA,
+    carB:snapB,
+    allReservations,
+    totalCars:cars.length,
+    hCarsInZone:cars.filter(c=>c.loop==='H'&&c._isInZone(c.getLoop())).map(c=>c.id),
+    vCarsInZone:cars.filter(c=>c.loop==='V'&&c._isInZone(c.getLoop())).map(c=>c.id),
+  };
+
+  // Diagnosis: try to determine WHY
+  const diagnoses=[];
+  if(!snapA.hasReservation)diagnoses.push(`Car ${snapA.id} (${snapA.loop}) has NO reservation`);
+  if(!snapB.hasReservation)diagnoses.push(`Car ${snapB.id} (${snapB.loop}) has NO reservation`);
+  if(snapA.state!=='in_zone'&&snapA.state!=='cleared')diagnoses.push(`Car ${snapA.id} in unexpected state: ${snapA.state}`);
+  if(snapB.state!=='in_zone'&&snapB.state!=='cleared')diagnoses.push(`Car ${snapB.id} in unexpected state: ${snapB.state}`);
+  if(snapA.clearance&&snapA.reservation){
+    const drift=Math.abs(snapA.clearance.enterTime-snapA.reservation.enterTime);
+    if(drift>0.1)diagnoses.push(`Car ${snapA.id} clearance/reservation mismatch: ${drift.toFixed(3)}s drift`);
+  }
+  if(snapB.clearance&&snapB.reservation){
+    const drift=Math.abs(snapB.clearance.enterTime-snapB.reservation.enterTime);
+    if(drift>0.1)diagnoses.push(`Car ${snapB.id} clearance/reservation mismatch: ${drift.toFixed(3)}s drift`);
+  }
+  if(snapA.reservation&&snapB.reservation){
+    const overlap=snapA.reservation.exitTime>snapB.reservation.enterTime&&snapA.reservation.enterTime<snapB.reservation.exitTime;
+    if(overlap)diagnoses.push(`Reservations OVERLAP in time: A[${snapA.reservation.enterTime}-${snapA.reservation.exitTime}] × B[${snapB.reservation.enterTime}-${snapB.reservation.exitTime}]`);
+    else diagnoses.push(`Reservations do NOT overlap — car arrived outside its reserved window`);
+  }
+  if(snapA.inZone&&!snapA.hasReservation)diagnoses.push(`Car ${snapA.id} is IN ZONE without a reservation!`);
+  if(snapB.inZone&&!snapB.hasReservation)diagnoses.push(`Car ${snapB.id} is IN ZONE without a reservation!`);
+  report.diagnoses=diagnoses;
+
+  return report;
+}
+
+function renderForensicsPanel(report){
+  const el=document.getElementById('forensicsBody');
+  const carTable=(label,snap)=>{
+    const stateClass=snap.state==='in_zone'||snap.state==='cleared'?'ok':'warn';
+    const resClass=snap.hasReservation?'ok':'warn';
+    let html=`<div class="section-title">${label}: Car ${snap.id} (${snap.loop}-loop)</div><table>`;
+    html+=`<tr><th>State</th><td class="${stateClass}">${snap.state}</td></tr>`;
+    html+=`<tr><th>Position</th><td>(${snap.pos.x}, ${snap.pos.y})</td></tr>`;
+    html+=`<tr><th>Speed</th><td>${snap.speed} px/s (base: ${snap.baseSpeed})</td></tr>`;
+    html+=`<tr><th>Path dist</th><td>${snap.dist}</td></tr>`;
+    html+=`<tr><th>In zone?</th><td>${snap.inZone?'YES':'no'}</td></tr>`;
+    html+=`<tr><th>Dist to zone</th><td>${snap.aheadToZone!==null?snap.aheadToZone:'N/A'}</td></tr>`;
+    html+=`<tr><th>Has reservation?</th><td class="${resClass}">${snap.hasReservation?'YES':'NO'}</td></tr>`;
+    if(snap.reservation){
+      html+=`<tr><th>Reserved window</th><td>[${snap.reservation.enterTime} → ${snap.reservation.exitTime}]</td></tr>`;
+    }
+    if(snap.clearance){
+      html+=`<tr><th>Clearance</th><td>enter=${snap.clearance.enterTime} exit=${snap.clearance.exitTime} speed=${snap.clearance.arrivalSpeed}</td></tr>`;
+    }
+    html+=`</table>`;
+    return html;
+  };
+
+  let html=`<div class="section-title">Collision @ t=${report.time}s — overlap: ${report.overlapDist}px</div>`;
+  html+=carTable('Car A',report.carA);
+  html+=carTable('Car B',report.carB);
+  html+=`<div class="section-title">Diagnoses</div>`;
+  if(report.diagnoses.length===0)html+=`<div style="color:#6a6a90">No automatic diagnosis — manual inspection needed</div>`;
+  else report.diagnoses.forEach(d=>html+=`<div style="color:#ff8060;margin:2px 0">• ${d}</div>`);
+  html+=`<div class="section-title">All Active Reservations (${report.allReservations.length})</div>`;
+  report.allReservations.forEach(r=>{
+    const highlight=(r.carId===report.carA.id||r.carId===report.carB.id)?'highlight':'';
+    html+=`<div class="res-row ${highlight}">Car ${r.carId} (${r.loop}) [${r.enterTime} → ${r.exitTime}]</div>`;
+  });
+  html+=`<div class="section-title">Cars currently in zone</div>`;
+  html+=`<div class="res-row">H-loop: [${report.hCarsInZone.join(', ')||'none'}]</div>`;
+  html+=`<div class="res-row">V-loop: [${report.vCarsInZone.join(', ')||'none'}]</div>`;
+  html+=`<div class="hint">Full report also dumped to browser console (F12). Sim auto-paused — press Space or Resume to continue.</div>`;
+  el.innerHTML=html;
+  document.getElementById('forensics').classList.add('show');
+}
+
+function closeForensics(){document.getElementById('forensics').classList.remove('show');}
+function toggleAutoPause(){
+  autoPauseOnCollision=!autoPauseOnCollision;
+  document.getElementById('autoPauseBtn').classList.toggle('active',autoPauseOnCollision);
+}
+
 // ─── COLLISION DETECTION ───
 function detectCollisions(simTime){
-  // Check all H-car vs V-car pairs for physical overlap
   for(const a of cars){
     for(const b of cars){
       if(a.loop===b.loop)continue;
-      if(a.id>=b.id)continue; // avoid double-checking
+      if(a.id>=b.id)continue;
       const la=a.getLoop(),lb=b.getLoop();
       const pa=posOnPath(la,a.dist),pb=posOnPath(lb,b.dist);
       const dx=pa.x-pb.x,dy=pa.y-pb.y;
       const dist=Math.sqrt(dx*dx+dy*dy);
-      if(dist<12){ // car size overlap
+      if(dist<12){
         if(a.collideCooldown<=0&&b.collideCooldown<=0){
           a.colliding=true;b.colliding=true;
           a.collideCooldown=1;b.collideCooldown=1;
           intersection.registerCollision((pa.x+pb.x)/2,(pa.y+pb.y)/2,simTime);
           addLog(`⚠ COLLISION: Car ${a.id} (${a.loop}) × Car ${b.id} (${b.loop})`);
+          // ─── FORENSICS CAPTURE ───
+          const report=buildForensicReport(a,b,pa,pb,dist,simTime);
+          collisionReports.push(report);
+          console.group(`%c⚠ COLLISION #${intersection.collisionCount} @ t=${report.time}s`,'color:#ff4060;font-size:14px;font-weight:bold');
+          console.log('%cFull forensic report:','color:#ffaa40',report);
+          console.log('%cCar A:','color:#40c0f0',report.carA);
+          console.log('%cCar B:','color:#e6a04a',report.carB);
+          console.log('%cDiagnoses:','color:#ff6060',report.diagnoses);
+          console.log('%cAll reservations:','color:#8888bb',report.allReservations);
+          console.groupEnd();
+          if(autoPauseOnCollision){
+            paused=true;
+            document.getElementById('pauseBtn').textContent='Resume';
+            document.getElementById('pauseBtn').classList.add('active');
+            renderForensicsPanel(report);
+          }
         }
       }
     }
