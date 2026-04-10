@@ -238,11 +238,13 @@ class SmartIntersection{
     if(!zone)return null;
 
     const ahead=distAhead(loop,car.dist,zone.dStart-STOP_LINE_MARGIN);
-    if(ahead>APPROACH_DIST||ahead<1)return null;
+    if(ahead>APPROACH_DIST)return null;
+    // Cars waiting at the stop line have ahead≈0; clamp to prevent div-by-zero
+    const effectiveAhead=Math.max(ahead,0.5);
 
     const zoneWidth=zone.dEnd-zone.dStart+16; // add car length
     const desiredSpeed=car.baseSpeed;
-    const arrivalTime=simTime+ahead/desiredSpeed;
+    const arrivalTime=simTime+effectiveAhead/desiredSpeed;
     const transitTime=zoneWidth/desiredSpeed;
     const enterTime=arrivalTime;
     const exitTime=arrivalTime+transitTime;
@@ -280,7 +282,7 @@ class SmartIntersection{
 
     if(timeToTravel<=0)return null; // too late, must stop
 
-    const neededSpeed=ahead/timeToTravel;
+    const neededSpeed=effectiveAhead/timeToTravel;
 
     // Only allow speeds between near-stop and slightly above base
     if(neededSpeed<5)return null; // too slow = just stop and wait
@@ -574,21 +576,33 @@ class Car{
   }
 
   _getFollowSpeed(allCars,loop){
-    let minAhead=Infinity;
+    let minDist=Infinity;
+    const myPos=posOnPath(loop,this.dist);
     for(const other of allCars){
       if(other.id===this.id||other.loop!==this.loop)continue;
-      const ahead=distAhead(loop,this.dist,other.dist);
-      if(ahead>0&&ahead<minAhead)minAhead=ahead;
+      const pathAhead=distAhead(loop,this.dist,other.dist);
+      if(pathAhead<=0||pathAhead>200)continue;
+      // On tight U-turns (R=15), path distance hugely overstates actual center
+      // separation. Use Euclidean distance when BOTH cars are near a U-turn
+      // (within 60px of each other on path AND close in Euclidean space).
+      let effective=pathAhead;
+      if(pathAhead<80){
+        const otherPos=posOnPath(loop,other.dist);
+        const dx=myPos.x-otherPos.x, dy=myPos.y-otherPos.y;
+        const euclidean=Math.sqrt(dx*dx+dy*dy);
+        // Only use Euclidean if it's LESS than path (curve case)
+        // AND the Euclidean is reasonably close (not opposite sides of loop)
+        if(euclidean<pathAhead && euclidean<60){
+          effective=euclidean;
+        }
+      }
+      if(effective<minDist)minDist=effective;
     }
-    // Car body is 16px long. We need center-to-center gap > 16 to not overlap.
-    // Safe stopping distance at speed v with decel a: v²/(2a)
-    // At 90px/s with decel=300: 90²/600 = 13.5px. Plus car length = ~30px.
-    const minGap=18; // car length + 2px buffer (center-to-center)
-    // Braking model: v_safe = sqrt(2 * decel * (gap - minGap))
-    // This guarantees the car CAN stop before reaching minGap
-    const decel=200; // px/s² braking force
-    if(minAhead<minGap)return 0; // already overlapping, full stop
-    const brakeRoom=minAhead-minGap;
+    // Car body is 16px long. minGap = minimum safe center-to-center distance.
+    const minGap=20; // car half-lengths (8+8=16) + 4px buffer
+    const decel=300; // px/s² braking force
+    if(minDist<minGap)return 0; // too close, full stop
+    const brakeRoom=minDist-minGap;
     const maxSafeSpeed=Math.sqrt(2*decel*brakeRoom);
     return maxSafeSpeed;
   }
@@ -816,6 +830,10 @@ function detectRearEnds(simTime){
       const result=obbOverlap(obbA,obbB);
       if(!result.hit)continue;
       if(a.collideCooldown>0&&b.collideCooldown>0)continue;
+      // Suppress false positives on tight curves: if one car is stopped (speed<1)
+      // and the overlap is minor (<3px), this is a curve geometry artifact,
+      // not a true rear-end collision. The stopped car is correctly car-following.
+      if(result.overlap<3 && (a.speed<1||b.speed<1))continue;
 
       a.colliding=true;b.colliding=true;
       a.collideCooldown=2;b.collideCooldown=2;

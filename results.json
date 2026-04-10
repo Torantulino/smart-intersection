@@ -1,0 +1,686 @@
+{
+  "pass": false,
+  "totalCollisions": 0,
+  "totalRearEnds": 0,
+  "totalStalls": 238,
+  "totalSimSeconds": 2400,
+  "totalRuns": 20,
+  "runs": [
+    {
+      "name": "light/seed42",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 73,
+      "nearMisses": 22,
+      "avgDelay": 1176,
+      "cars": 8,
+      "stuckCars": 0
+    },
+    {
+      "name": "light/seed137",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 66,
+      "nearMisses": 106,
+      "avgDelay": 1433,
+      "cars": 8,
+      "stuckCars": 0
+    },
+    {
+      "name": "light/seed256",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 66,
+      "nearMisses": 45,
+      "avgDelay": 761,
+      "cars": 8,
+      "stuckCars": 0
+    },
+    {
+      "name": "light/seed999",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 71,
+      "nearMisses": 0,
+      "avgDelay": 1197,
+      "cars": 8,
+      "stuckCars": 0
+    },
+    {
+      "name": "light/seed31415",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 66,
+      "nearMisses": 22,
+      "avgDelay": 1569,
+      "cars": 8,
+      "stuckCars": 0
+    },
+    {
+      "name": "normal/seed42",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 5,
+      "throughput": 94,
+      "nearMisses": 168,
+      "avgDelay": 1399,
+      "cars": 12,
+      "stuckCars": 0
+    },
+    {
+      "name": "normal/seed137",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 92,
+      "nearMisses": 53,
+      "avgDelay": 1659,
+      "cars": 12,
+      "stuckCars": 5
+    },
+    {
+      "name": "normal/seed256",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 0,
+      "throughput": 92,
+      "nearMisses": 22,
+      "avgDelay": 978,
+      "cars": 12,
+      "stuckCars": 0
+    },
+    {
+      "name": "normal/seed999",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 18,
+      "throughput": 77,
+      "nearMisses": 284,
+      "avgDelay": 2505,
+      "cars": 12,
+      "stuckCars": 0
+    },
+    {
+      "name": "normal/seed31415",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 5,
+      "throughput": 92,
+      "nearMisses": 320,
+      "avgDelay": 2584,
+      "cars": 12,
+      "stuckCars": 0
+    },
+    {
+      "name": "heavy/seed42",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 20,
+      "throughput": 9,
+      "nearMisses": 294,
+      "avgDelay": 1256,
+      "cars": 20,
+      "stuckCars": 20
+    },
+    {
+      "name": "heavy/seed137",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 24,
+      "throughput": 76,
+      "nearMisses": 259,
+      "avgDelay": 1788,
+      "cars": 20,
+      "stuckCars": 19
+    },
+    {
+      "name": "heavy/seed256",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 20,
+      "throughput": 8,
+      "nearMisses": 167,
+      "avgDelay": 2249,
+      "cars": 20,
+      "stuckCars": 19
+    },
+    {
+      "name": "heavy/seed999",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 46,
+      "throughput": 53,
+      "nearMisses": 354,
+      "avgDelay": 2064,
+      "cars": 20,
+      "stuckCars": 18
+    },
+    {
+      "name": "heavy/seed31415",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 20,
+      "throughput": 10,
+      "nearMisses": 390,
+      "avgDelay": 2038,
+      "cars": 20,
+      "stuckCars": 19
+    },
+    {
+      "name": "burst/seed42",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 21,
+      "throughput": 33,
+      "nearMisses": 446,
+      "avgDelay": 1356,
+      "cars": 16,
+      "stuckCars": 16
+    },
+    {
+      "name": "burst/seed137",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 17,
+      "throughput": 46,
+      "nearMisses": 162,
+      "avgDelay": 1939,
+      "cars": 16,
+      "stuckCars": 14
+    },
+    {
+      "name": "burst/seed256",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 16,
+      "throughput": 71,
+      "nearMisses": 128,
+      "avgDelay": 1660,
+      "cars": 16,
+      "stuckCars": 14
+    },
+    {
+      "name": "burst/seed999",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 14,
+      "throughput": 102,
+      "nearMisses": 445,
+      "avgDelay": 2698,
+      "cars": 16,
+      "stuckCars": 0
+    },
+    {
+      "name": "burst/seed31415",
+      "collisions": 0,
+      "rearEnds": 0,
+      "stalls": 12,
+      "throughput": 108,
+      "nearMisses": 588,
+      "avgDelay": 2148,
+      "cars": 16,
+      "stuckCars": 0
+    }
+  ],
+  "forensics": [],
+  "rearEndForensics": [],
+  "stallForensics": [
+    {
+      "type": "stall",
+      "time": 19.65,
+      "stallDuration": 5.02,
+      "car": {
+        "id": 2,
+        "loop": "H",
+        "state": "waiting",
+        "speed": 0,
+        "baseSpeed": 66.06,
+        "dist": 459,
+        "pos": {
+          "x": 559,
+          "y": 385
+        },
+        "inZone": false,
+        "aheadToZone": 11,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 1,
+          "state": "in_zone",
+          "speed": 6.81,
+          "ahead": 54.2,
+          "behind": 2039.9
+        },
+        {
+          "id": 3,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 10,
+          "state": "cleared",
+          "speed": 0
+        },
+        {
+          "id": 11,
+          "state": "cleared",
+          "speed": 0
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 20.483,
+      "stallDuration": 5.02,
+      "car": {
+        "id": 11,
+        "loop": "V",
+        "state": "cleared",
+        "speed": 0,
+        "baseSpeed": 56.92,
+        "dist": 1007.83,
+        "pos": {
+          "x": 585,
+          "y": 429.3
+        },
+        "inZone": true,
+        "aheadToZone": 706.3,
+        "clearance": {
+          "enterTime": 15.313,
+          "exitTime": 16.648,
+          "arrivalSpeed": 56.92,
+          "stopDist": 999.1
+        },
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 6,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 1374.2,
+          "behind": 39.9
+        },
+        {
+          "id": 7,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 1394.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 1,
+          "state": "in_zone",
+          "speed": 6.81
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 21.717,
+      "stallDuration": 5.02,
+      "car": {
+        "id": 3,
+        "loop": "H",
+        "state": "approaching",
+        "speed": 0,
+        "baseSpeed": 58.89,
+        "dist": 439.02,
+        "pos": {
+          "x": 539,
+          "y": 385
+        },
+        "inZone": false,
+        "aheadToZone": 31,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 2,
+          "state": "waiting",
+          "speed": 0,
+          "ahead": 20,
+          "behind": 2074.2
+        },
+        {
+          "id": 4,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 10,
+          "state": "cleared",
+          "speed": 0
+        },
+        {
+          "id": 11,
+          "state": "cleared",
+          "speed": 0
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 24.25,
+      "stallDuration": 5.02,
+      "car": {
+        "id": 5,
+        "loop": "H",
+        "state": "waiting",
+        "speed": 0,
+        "baseSpeed": 75.94,
+        "dist": 1506.25,
+        "pos": {
+          "x": 640.8,
+          "y": 415
+        },
+        "inZone": false,
+        "aheadToZone": 10.8,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 0,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 8,
+          "state": "in_zone",
+          "speed": 56.9
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 107.2,
+      "stallDuration": 5.02,
+      "car": {
+        "id": 10,
+        "loop": "V",
+        "state": "waiting",
+        "speed": 0,
+        "baseSpeed": 76.75,
+        "dist": 996.47,
+        "pos": {
+          "x": 585,
+          "y": 440.6
+        },
+        "inZone": false,
+        "aheadToZone": 10.6,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 9,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 1394.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 2,
+          "state": "in_zone",
+          "speed": 66.06
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 13.85,
+      "stallDuration": 5,
+      "car": {
+        "id": 11,
+        "loop": "V",
+        "state": "waiting",
+        "speed": 0,
+        "baseSpeed": 70.11,
+        "dist": 996.43,
+        "pos": {
+          "x": 585,
+          "y": 440.7
+        },
+        "inZone": false,
+        "aheadToZone": 10.7,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [],
+      "crossInZone": [
+        {
+          "id": 2,
+          "state": "cleared",
+          "speed": 0
+        },
+        {
+          "id": 4,
+          "state": "cleared",
+          "speed": 0
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 15.217,
+      "stallDuration": 5,
+      "car": {
+        "id": 2,
+        "loop": "H",
+        "state": "cleared",
+        "speed": 0,
+        "baseSpeed": 86.62,
+        "dist": 470.27,
+        "pos": {
+          "x": 570.3,
+          "y": 385
+        },
+        "inZone": true,
+        "aheadToZone": 1046.8,
+        "clearance": {
+          "enterTime": 10.026,
+          "exitTime": 10.903,
+          "arrivalSpeed": 43.3,
+          "stopDist": 462
+        },
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 3,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        },
+        {
+          "id": 5,
+          "state": "approaching",
+          "speed": 65.23,
+          "ahead": 2048.2,
+          "behind": 46
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 7,
+          "state": "in_zone",
+          "speed": 7.12
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 15.383,
+      "stallDuration": 5,
+      "car": {
+        "id": 10,
+        "loop": "V",
+        "state": "waiting",
+        "speed": 0,
+        "baseSpeed": 86.2,
+        "dist": 289.03,
+        "pos": {
+          "x": 615,
+          "y": 359
+        },
+        "inZone": false,
+        "aheadToZone": 11,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 7,
+          "state": "in_zone",
+          "speed": 7.12,
+          "ahead": 55.7,
+          "behind": 1358.5
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 2,
+          "state": "cleared",
+          "speed": 0
+        },
+        {
+          "id": 4,
+          "state": "cleared",
+          "speed": 0
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 16.2,
+      "stallDuration": 5,
+      "car": {
+        "id": 3,
+        "loop": "H",
+        "state": "approaching",
+        "speed": 0,
+        "baseSpeed": 79.44,
+        "dist": 450.31,
+        "pos": {
+          "x": 550.3,
+          "y": 385
+        },
+        "inZone": false,
+        "aheadToZone": 19.7,
+        "clearance": null,
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 2,
+          "state": "cleared",
+          "speed": 0,
+          "ahead": 20,
+          "behind": 2074.2
+        },
+        {
+          "id": 5,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 7,
+          "state": "in_zone",
+          "speed": 7.12
+        }
+      ],
+      "reservation": null
+    },
+    {
+      "type": "stall",
+      "time": 16.95,
+      "stallDuration": 5,
+      "car": {
+        "id": 4,
+        "loop": "H",
+        "state": "cleared",
+        "speed": 0,
+        "baseSpeed": 57.03,
+        "dist": 1517.37,
+        "pos": {
+          "x": 629.7,
+          "y": 415
+        },
+        "inZone": true,
+        "aheadToZone": 1046.8,
+        "clearance": {
+          "enterTime": 11.805,
+          "exitTime": 13.137,
+          "arrivalSpeed": 57.03,
+          "stopDist": 1509.1
+        },
+        "reservation": null,
+        "hasReservation": false
+      },
+      "nearbysameLane": [
+        {
+          "id": 1,
+          "state": "approaching",
+          "speed": 0,
+          "ahead": 2074.2,
+          "behind": 20
+        }
+      ],
+      "crossInZone": [
+        {
+          "id": 7,
+          "state": "in_zone",
+          "speed": 7.12
+        }
+      ],
+      "reservation": null
+    }
+  ]
+}
