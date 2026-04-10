@@ -57,7 +57,9 @@ canvas{display:block;position:fixed;top:0;left:0}
 <div class="hud-row"><span class="hud-label">Cars</span><span class="hud-val" id="hCarCount">0</span></div>
 <div class="hud-row"><span class="hud-label">Throughput</span><span class="hud-val" id="hThruput">0</span></div>
 <div class="hud-row"><span class="hud-label">Negotiations</span><span class="hud-val" id="hNeg">0</span></div>
-<div class="hud-row"><span class="hud-label">Collisions</span><span class="hud-val" id="hCol">0</span></div>
+<div class="hud-row"><span class="hud-label">X-traffic col</span><span class="hud-val" id="hCol">0</span></div>
+<div class="hud-row"><span class="hud-label">Rear-ends</span><span class="hud-val" id="hRear">0</span></div>
+<div class="hud-row"><span class="hud-label">Stalls</span><span class="hud-val" id="hStall">0</span></div>
 <div class="hud-row"><span class="hud-label">Near misses</span><span class="hud-val" id="hNear">0</span></div>
 <div class="hud-row"><span class="hud-label">Avg delay</span><span class="hud-val" id="hDelay">0ms</span></div>
 </div>
@@ -247,13 +249,14 @@ class SmartIntersection{
 
     this.totalNegotiations++;
 
-    // GROUND TRUTH CHECK: if cross-traffic is physically near the intersection,
-    // don't issue clearance regardless of what reservations say
+    // GROUND TRUTH CHECK: if cross-traffic is physically inside the zone
+    // (actually in the danger area, not just "near"), deny clearance
     const otherLoop=car.loop==='H'?'V':'H';
     const physicalBlocker=cars.find(c=>{
       if(c.loop!==otherLoop)return false;
-      const cPos=posOnPath(c.getLoop(),c.dist);
-      return Math.abs(cPos.x-ROAD_CENTER_X)<40&&Math.abs(cPos.y-ROAD_CENTER_Y)<40;
+      // Only block if the cross-traffic car is actually IN its zone
+      // (on the path-based zone check), not just geometrically "near"
+      return c._isInZone(c.getLoop());
     });
     if(physicalBlocker){
       return null;
@@ -389,6 +392,8 @@ class Car{
     this.trail=[];
     this.colliding=false;
     this.collideCooldown=0;
+    this.stoppedSince=-1; // simTime when speed first dropped to ~0, -1 if moving
+    this.stallReported=false; // only report once per stall event
   }
 
   getLoop(){return this.loop==='H'?loopH:loopV;}
@@ -449,20 +454,11 @@ class Car{
         // We have a reservation. Maintain assigned speed.
         // If we're now in the zone, transition — BUT first check ground truth
         if(inZoneNow){
-          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is physically near the intersection
-          // Uses OBB proximity — checks if any cross-traffic car's bounding box is within
-          // the danger zone, even if it hasn't entered the path-defined zone yet.
+          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is in its zone
           const crossLoop=this.loop==='H'?'V':'H';
-          const myOBB=getCarOBB(this);
           const crossBlocker=allCars.find(c=>{
-            if(c.loop===crossLoop){
-              // Check if cross-traffic car is anywhere near the intersection
-              const cPos=posOnPath(c.getLoop(),c.dist);
-              if(Math.abs(cPos.x-ROAD_CENTER_X)<40&&Math.abs(cPos.y-ROAD_CENTER_Y)<40){
-                return true; // cross-traffic near intersection center
-              }
-            }
-            return false;
+            if(c.loop!==crossLoop)return false;
+            return c._isInZone(c.getLoop());
           });
           if(crossBlocker){
             this.speed=0;
@@ -500,19 +496,9 @@ class Car{
       }
 
       case STATE.IN_ZONE:{
-        // CRITICAL: Maintain clearance speed through the zone.
-        // The reservation contract guarantees we exit on time ONLY if
-        // we hold this speed. Car-following must NOT override it.
-        const zoneSpeed=this.clearance?this.clearance.arrivalSpeed:this.baseSpeed;
-        this.speed=zoneSpeed;
-        // Only apply car-following if same-loop car is VERY close (emergency brake)
-        // but never below 80% of clearance speed — the reservation depends on it
-        const followSpeed2=this._getFollowSpeed(allCars,loop);
-        if(followSpeed2<zoneSpeed){
-          // Emergency: car directly ahead. Clamp to minimum 80% of clearance
-          // to preserve reservation timing as much as possible
-          this.speed=Math.max(zoneSpeed*0.8,Math.min(zoneSpeed,followSpeed2));
-        }
+        // Maintain clearance speed through the zone.
+        // Universal car-following below will cap if same-lane car is too close.
+        this.speed=this.clearance?this.clearance.arrivalSpeed:this.baseSpeed;
         if(!inZoneNow){
           // Exited zone
           intersection.releaseCar(this.id);
@@ -523,14 +509,48 @@ class Car{
       }
     }
 
-    // Car-following override for CRUISING (not near intersection)
-    if(this.state===STATE.CRUISING){
-      const followSpeed=this._getFollowSpeed(allCars,loop);
-      this.speed=Math.min(this.speed,followSpeed);
-    }
+    // UNIVERSAL car-following: applies in ALL states, no exceptions.
+    // This is the last line of defense against rear-end collisions.
+    // The state machine sets a desired speed; car-following caps it.
+    const followLimit=this._getFollowSpeed(allCars,loop);
+    this.speed=Math.min(this.speed,followLimit);
 
     // Ensure non-negative
     this.speed=Math.max(0,this.speed);
+
+    // Stall detection
+    if(this.speed<0.5){
+      if(this.stoppedSince<0)this.stoppedSince=simTime;
+      const stallDur=simTime-this.stoppedSince;
+      if(stallDur>=STALL_THRESHOLD&&!this.stallReported){
+        this.stallReported=true;
+        stallCount++;
+        const pos=posOnPath(loop,this.dist);
+        const zone=intersection._nextZone(this);
+        const aheadToZone=zone?distAhead(loop,this.dist,zone.dStart):null;
+        const report={
+          type:'stall',time:Math.round(simTime*1000)/1000,
+          stallDuration:Math.round(stallDur*100)/100,
+          car:snapshotCar(this),
+          nearbysameLane:allCars.filter(c=>c.id!==this.id&&c.loop===this.loop)
+            .map(c=>({id:c.id,state:c.state,speed:Math.round(c.speed*100)/100,
+              ahead:Math.round(distAhead(loop,this.dist,c.dist)*10)/10,
+              behind:Math.round(distAhead(loop,c.dist,this.dist)*10)/10}))
+            .filter(c=>c.ahead<80||c.behind<80),
+          crossInZone:allCars.filter(c=>c.loop!==this.loop&&c._isInZone(c.getLoop()))
+            .map(c=>({id:c.id,state:c.state,speed:Math.round(c.speed*100)/100})),
+          reservation:intersection.reservations.find(r=>r.carId===this.id)||null,
+        };
+        stallReports.push(report);
+        addLog(`🧊 STALL: Car ${this.id} (${this.loop}/${this.state}) stopped ${stallDur.toFixed(1)}s`);
+        console.group(`%c🧊 STALL: Car ${this.id} stopped ${stallDur.toFixed(1)}s`,'color:#60a0ff;font-size:12px');
+        console.log(JSON.parse(JSON.stringify(report)));
+        console.groupEnd();
+      }
+    }else{
+      this.stoppedSince=-1;
+      this.stallReported=false;
+    }
 
     // Move
     this.dist+=this.speed*dt;
@@ -560,12 +580,17 @@ class Car{
       const ahead=distAhead(loop,this.dist,other.dist);
       if(ahead>0&&ahead<minAhead)minAhead=ahead;
     }
-    const safeGap=45;
-    if(minAhead<safeGap){
-      // Proportional: stop if gap<15, base speed if gap>safeGap
-      return Math.max(0,(minAhead-15)/(safeGap-15)*this.baseSpeed);
-    }
-    return Infinity; // no constraint
+    // Car body is 16px long. We need center-to-center gap > 16 to not overlap.
+    // Safe stopping distance at speed v with decel a: v²/(2a)
+    // At 90px/s with decel=300: 90²/600 = 13.5px. Plus car length = ~30px.
+    const minGap=18; // car length + 2px buffer (center-to-center)
+    // Braking model: v_safe = sqrt(2 * decel * (gap - minGap))
+    // This guarantees the car CAN stop before reaching minGap
+    const decel=200; // px/s² braking force
+    if(minAhead<minGap)return 0; // already overlapping, full stop
+    const brakeRoom=minAhead-minGap;
+    const maxSafeSpeed=Math.sqrt(2*decel*brakeRoom);
+    return maxSafeSpeed;
   }
 }
 
@@ -703,6 +728,11 @@ function toggleAutoPause(){
 const CAR_HALF_L=8, CAR_HALF_W=4;
 let showHitboxes=false;
 let nearMissCount=0;
+let rearEndCount=0;
+let rearEndReports=[];
+let stallCount=0;
+let stallReports=[];
+const STALL_THRESHOLD=5; // seconds stopped before flagging
 
 function getCarOBB(car){
   const loop=car.getLoop();
@@ -775,8 +805,73 @@ function drawHitboxes(){
   ctx.restore();
 }
 
-// ─── COLLISION DETECTION (OBB-based) ───
+// ─── SAME-LANE REAR-END COLLISION DETECTION ───
+function detectRearEnds(simTime){
+  for(const a of cars){
+    for(const b of cars){
+      if(a.id>=b.id)continue;
+      if(a.loop!==b.loop)continue;
+      // Same loop — check OBB overlap
+      const obbA=getCarOBB(a),obbB=getCarOBB(b);
+      const result=obbOverlap(obbA,obbB);
+      if(!result.hit)continue;
+      if(a.collideCooldown>0&&b.collideCooldown>0)continue;
+
+      a.colliding=true;b.colliding=true;
+      a.collideCooldown=2;b.collideCooldown=2;
+      rearEndCount++;
+
+      const loop=a.getLoop();
+      const aAhead=distAhead(loop,b.dist,a.dist);
+      const bAhead=distAhead(loop,a.dist,b.dist);
+      const front=aAhead<bAhead?a:b;
+      const rear=front===a?b:a;
+
+      const report={
+        type:'rear_end',time:Math.round(simTime*1000)/1000,
+        obbOverlap:Math.round(result.overlap*10)/10,
+        front:snapshotCar(front),
+        rear:snapshotCar(rear),
+        gapOnPath:Math.round(Math.min(aAhead,bAhead)*10)/10,
+      };
+      rearEndReports.push(report);
+      const mx=(obbA.pos.x+obbB.pos.x)/2,my=(obbA.pos.y+obbB.pos.y)/2;
+      intersection.registerCollision(mx,my,simTime);
+      addLog(`🚗💥 REAR-END: Car ${rear.id} → Car ${front.id} (${a.loop}-loop) gap=${report.gapOnPath}px`);
+      console.group(`%c🚗💥 REAR-END #${rearEndCount} @ t=${report.time}s`,'color:#ff8040;font-size:12px;font-weight:bold');
+      console.log(JSON.parse(JSON.stringify(report)));
+      console.groupEnd();
+      if(autoPauseOnCollision){
+        paused=true;
+        document.getElementById('pauseBtn').textContent='Resume';
+        document.getElementById('pauseBtn').classList.add('active');
+        // Show in forensics panel
+        const el=document.getElementById('forensicsBody');
+        let html=`<div class="section-title">🚗💥 Rear-End Collision @ t=${report.time}s — overlap: ${report.obbOverlap}px, gap: ${report.gapOnPath}px</div>`;
+        const ct=(label,snap)=>{
+          let h=`<div class="section-title">${label}: Car ${snap.id} (${snap.loop})</div><table>`;
+          h+=`<tr><th>State</th><td>${snap.state}</td></tr>`;
+          h+=`<tr><th>Speed</th><td>${snap.speed} px/s (base: ${snap.baseSpeed})</td></tr>`;
+          h+=`<tr><th>Position</th><td>(${snap.pos.x}, ${snap.pos.y})</td></tr>`;
+          h+=`<tr><th>Dist</th><td>${snap.dist}</td></tr>`;
+          h+=`<tr><th>In zone?</th><td>${snap.inZone}</td></tr>`;
+          h+=`<tr><th>Reservation?</th><td class="${snap.hasReservation?'ok':'warn'}">${snap.hasReservation?'YES':'NO'}</td></tr>`;
+          if(snap.clearance)h+=`<tr><th>Clearance</th><td>spd=${snap.clearance.arrivalSpeed} enter=${snap.clearance.enterTime}</td></tr>`;
+          h+=`</table>`;return h;
+        };
+        html+=ct('Front car (hit)',report.front);
+        html+=ct('Rear car (hitter)',report.rear);
+        html+=`<div class="hint">Same-lane rear-end collision. Full report in console (F12).</div>`;
+        el.innerHTML=html;
+        document.getElementById('forensics').classList.add('show');
+      }
+    }
+  }
+}
+
+// ─── CROSS-TRAFFIC COLLISION DETECTION (OBB-based) ───
 function detectCollisions(simTime){
+  detectRearEnds(simTime);
   for(const a of cars){
     for(const b of cars){
       if(a.loop===b.loop)continue;
@@ -1025,6 +1120,8 @@ function drawHUD(){
   document.getElementById('hThruput').textContent=intersection.totalThruput;
   document.getElementById('hNeg').textContent=intersection.totalNegotiations;
   document.getElementById('hCol').textContent=intersection.collisionCount;
+  document.getElementById('hRear').textContent=rearEndCount;
+  document.getElementById('hStall').textContent=stallCount;
   document.getElementById('hNear').textContent=nearMissCount;
   document.getElementById('hDelay').textContent=Math.round(intersection.avgDelay)+'ms';
   const logEl=document.getElementById('log');
