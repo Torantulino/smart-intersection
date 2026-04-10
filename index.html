@@ -456,11 +456,23 @@ class Car{
         // We have a reservation. Maintain assigned speed.
         // If we're now in the zone, transition — BUT first check ground truth
         if(inZoneNow){
-          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is in its zone
+          // PHYSICAL OCCUPANCY GATE: block if cross-traffic is actively
+          // transiting (IN_ZONE state) OR physically near intersection center
+          // and still moving (catches cars traversing zone[0] while in
+          // APPROACHING state for zone[1]).  Exclude stopped cars (speed<1)
+          // to avoid far-zone deadlocks.
           const crossLoop=this.loop==='H'?'V':'H';
           const crossBlocker=allCars.find(c=>{
             if(c.loop!==crossLoop)return false;
-            return c._isInZone(c.getLoop());
+            if(c.state===STATE.IN_ZONE)return true;
+            // Geometric check: car physically near intersection AND moving
+            if(c.speed>1){
+              const cPos=posOnPath(c.getLoop(),c.dist);
+              const dx=Math.abs(cPos.x-ROAD_CENTER_X);
+              const dy=Math.abs(cPos.y-ROAD_CENTER_Y);
+              if(dx<32&&dy<32)return true;
+            }
+            return false;
           });
           if(crossBlocker){
             this.speed=0;
