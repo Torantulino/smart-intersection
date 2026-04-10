@@ -155,7 +155,7 @@ function buildLoop(isHoriz){
   // Conflicts at 4 points: (585,385),(615,385),(585,415),(615,415)
   // We define zone as the region where a car on this loop is within
   // striking range of any car on the other loop
-  const ZONE_HALF=22; // slightly larger than car length
+  const ZONE_HALF=32; // must cover: lane offset (15) + car half-length (8) + safety margin (9)
   const zones=[];
   let inZone=false, zoneStart=-1;
   for(let i=0;i<pts.length;i++){
@@ -212,7 +212,7 @@ const ZONE_VIS_RADIUS=35; // visual zone size
 const APPROACH_DIST=250;  // start negotiating this far out
 const STOP_LINE_MARGIN=8; // stop this far before zone entry
 const SAFETY_GAP=0.4;     // seconds gap between cross-traffic reservations
-const CAR_ZONE_PAD=0.15;  // extra seconds padding on each reservation
+const CAR_ZONE_PAD=0.35;  // extra seconds padding on each reservation (covers speed drift)
 
 class SmartIntersection{
   constructor(){
@@ -247,12 +247,15 @@ class SmartIntersection{
 
     this.totalNegotiations++;
 
-    // GROUND TRUTH CHECK: if cross-traffic is physically in the zone RIGHT NOW,
+    // GROUND TRUTH CHECK: if cross-traffic is physically near the intersection,
     // don't issue clearance regardless of what reservations say
     const otherLoop=car.loop==='H'?'V':'H';
-    const physicalBlocker=cars.find(c=>c.loop===otherLoop&&c._isInZone(c.getLoop()));
+    const physicalBlocker=cars.find(c=>{
+      if(c.loop!==otherLoop)return false;
+      const cPos=posOnPath(c.getLoop(),c.dist);
+      return Math.abs(cPos.x-ROAD_CENTER_X)<40&&Math.abs(cPos.y-ROAD_CENTER_Y)<40;
+    });
     if(physicalBlocker){
-      // Zone is physically occupied — deny clearance
       return null;
     }
 
@@ -446,14 +449,24 @@ class Car{
         // We have a reservation. Maintain assigned speed.
         // If we're now in the zone, transition — BUT first check ground truth
         if(inZoneNow){
-          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is still inside
+          // PHYSICAL OCCUPANCY GATE: verify no cross-traffic is physically near the intersection
+          // Uses OBB proximity — checks if any cross-traffic car's bounding box is within
+          // the danger zone, even if it hasn't entered the path-defined zone yet.
           const crossLoop=this.loop==='H'?'V':'H';
-          const crossBlocker=allCars.find(c=>c.loop===crossLoop&&c._isInZone(c.getLoop()));
+          const myOBB=getCarOBB(this);
+          const crossBlocker=allCars.find(c=>{
+            if(c.loop===crossLoop){
+              // Check if cross-traffic car is anywhere near the intersection
+              const cPos=posOnPath(c.getLoop(),c.dist);
+              if(Math.abs(cPos.x-ROAD_CENTER_X)<40&&Math.abs(cPos.y-ROAD_CENTER_Y)<40){
+                return true; // cross-traffic near intersection center
+              }
+            }
+            return false;
+          });
           if(crossBlocker){
-            // Cross-traffic is STILL physically in the zone — hard stop!
-            // This overrides the reservation. Safety > schedule.
             this.speed=0;
-            addLog(`🛑 Car ${this.id} HELD — Car ${crossBlocker.id} (${crossBlocker.loop}) still in zone`);
+            addLog(`🛑 Car ${this.id} HELD — Car ${crossBlocker.id} (${crossBlocker.loop}) still near zone`);
             break;
           }
           this.state=STATE.IN_ZONE;
@@ -821,13 +834,16 @@ function addCar(loopId){
   for(let attempts=0;attempts<80;attempts++){
     const d=Math.random()*loop.totalLen;
     let ok=true;
-    // Don't spawn in/near intersection zone
+    // Don't spawn in/near intersection zone (generous margin around expanded zone)
     for(const z of loop.zones){
       const a1=distAhead(loop,d,z.dStart);
-      if(a1<60)ok=false;
+      if(a1<100)ok=false;
       const a2=distAhead(loop,z.dEnd,d);
-      if(a2<20)ok=false;
+      if(a2<40)ok=false;
     }
+    // Also check raw position isn't near intersection center
+    const spawnPos=posOnPath(loop,d);
+    if(Math.abs(spawnPos.x-ROAD_CENTER_X)<50&&Math.abs(spawnPos.y-ROAD_CENTER_Y)<50)ok=false;
     for(const c of cars){
       if(c.loop!==loopId)continue;
       const diff=distAhead(loop,d,c.dist);
