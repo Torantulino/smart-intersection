@@ -244,7 +244,7 @@ class SmartIntersection{
 
     const zoneWidth=zone.dEnd-zone.dStart+16; // add car length
     const desiredSpeed=car.baseSpeed;
-    const boostSpeed=desiredSpeed*1.3; // speed up through zone to reduce reservation window
+    const boostSpeed=desiredSpeed*1.5; // speed up through zone to reduce reservation window
     const arrivalTime=simTime+effectiveAhead/desiredSpeed;
     const transitTime=zoneWidth/boostSpeed;
     const enterTime=arrivalTime;
