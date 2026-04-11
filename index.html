@@ -244,8 +244,9 @@ class SmartIntersection{
 
     const zoneWidth=zone.dEnd-zone.dStart+16; // add car length
     const desiredSpeed=car.baseSpeed;
+    const boostSpeed=desiredSpeed*1.3; // speed up through zone to reduce reservation window
     const arrivalTime=simTime+effectiveAhead/desiredSpeed;
-    const transitTime=zoneWidth/desiredSpeed;
+    const transitTime=zoneWidth/boostSpeed;
     const enterTime=arrivalTime;
     const exitTime=arrivalTime+transitTime;
 
@@ -267,7 +268,7 @@ class SmartIntersection{
       // Clear! Reserve and go at full speed
       this._reserve(car.id,car.loop,enterTime-CAR_ZONE_PAD,exitTime+CAR_ZONE_PAD);
       this.activeNegotiations.set(car.id,{status:'cleared',t:simTime});
-      return{enterTime,exitTime,arrivalSpeed:desiredSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
+      return{enterTime,exitTime,arrivalSpeed:desiredSpeed,zoneSpeed:boostSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
     }
 
     // Find the earliest safe window AFTER all current cross-traffic clears
@@ -291,7 +292,7 @@ class SmartIntersection{
     this.totalDelayMs+=Math.max(0,delay);
     this.delayCount++;
     this.activeNegotiations.set(car.id,{status:'adjusted',t:simTime});
-    return{enterTime:safeEnter,exitTime:safeExit,arrivalSpeed:neededSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
+    return{enterTime:safeEnter,exitTime:safeExit,arrivalSpeed:neededSpeed,zoneSpeed:boostSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
   }
 
   _nextZone(car){
@@ -521,9 +522,9 @@ class Car{
       }
 
       case STATE.IN_ZONE:{
-        // Maintain clearance speed through the zone.
+        // Maintain zone speed through the zone (boosted to minimize dwell time).
         // Universal car-following below will cap if same-lane car is too close.
-        this.speed=this.clearance?this.clearance.arrivalSpeed:this.baseSpeed;
+        this.speed=this.clearance?(this.clearance.zoneSpeed||this.clearance.arrivalSpeed):this.baseSpeed;
         if(!inZoneNow){
           // Exited zone
           intersection.releaseCar(this.id);
