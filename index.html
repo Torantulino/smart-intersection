@@ -211,7 +211,7 @@ function distAhead(loop,fromDist,toDist){
 // This is the fail-safe: a stopped car never collides.
 
 const ZONE_VIS_RADIUS=35; // visual zone size
-const APPROACH_DIST=250;  // start negotiating this far out
+const APPROACH_DIST=350;  // start negotiating this far out
 const STOP_LINE_MARGIN=8; // stop this far before zone entry
 const SAFETY_GAP=0.3;     // seconds gap between cross-traffic reservations
 const CAR_ZONE_PAD=0.25;  // extra seconds padding on each reservation (covers speed drift)
@@ -349,7 +349,14 @@ class SmartIntersection{
   }
 
   cleanup(simTime){
-    this.reservations=this.reservations.filter(r=>r.exitTime>simTime-1);
+    // Remove expired reservations and orphans (car no longer CLEARED/IN_ZONE)
+    this.reservations=this.reservations.filter(r=>{
+      if(r.exitTime<=simTime)return false;
+      // Check if the car still needs this reservation
+      const car=cars.find(c=>c.id===r.carId);
+      if(car&&car.state!==STATE.CLEARED&&car.state!==STATE.IN_ZONE)return false;
+      return true;
+    });
     for(const[id,n]of this.activeNegotiations){
       if(simTime-n.t>5)this.activeNegotiations.delete(id);
     }
