@@ -213,8 +213,8 @@ function distAhead(loop,fromDist,toDist){
 const ZONE_VIS_RADIUS=35; // visual zone size
 const APPROACH_DIST=250;  // start negotiating this far out
 const STOP_LINE_MARGIN=8; // stop this far before zone entry
-const SAFETY_GAP=0.4;     // seconds gap between cross-traffic reservations
-const CAR_ZONE_PAD=0.35;  // extra seconds padding on each reservation (covers speed drift)
+const SAFETY_GAP=0.3;     // seconds gap between cross-traffic reservations
+const CAR_ZONE_PAD=0.25;  // extra seconds padding on each reservation (covers speed drift)
 
 class SmartIntersection{
   constructor(){
@@ -256,8 +256,6 @@ class SmartIntersection{
     const otherLoop=car.loop==='H'?'V':'H';
     const physicalBlocker=cars.find(c=>{
       if(c.loop!==otherLoop)return false;
-      // Only block if the cross-traffic car is actually IN its zone
-      // (on the path-based zone check), not just geometrically "near"
       return c._isInZone(c.getLoop());
     });
     if(physicalBlocker){
@@ -454,8 +452,14 @@ class Car{
 
       case STATE.CLEARED:{
         // We have a reservation. Maintain assigned speed.
-        // If we're now in the zone, transition — BUT first check ground truth
-        if(inZoneNow){
+        // If we're now in the zone, transition — BUT first check ground truth.
+        // Only trigger the gate at the TARGET zone (near stopDist), not at
+        // the far zone crossing which this car is just passing through.
+        // Compare car dist to the clearance stopDist: if within ~80px, we're
+        // at the target zone; if far (e.g. 700px), we're at the other zone.
+        const distPastStop=distAhead(loop,this.clearance.stopDist,this.dist);
+        const atTargetZone=inZoneNow&&distPastStop<80;
+        if(atTargetZone){
           // PHYSICAL OCCUPANCY GATE: block if cross-traffic is actively
           // transiting (IN_ZONE state) OR physically near intersection center
           // and still moving (catches cars traversing zone[0] while in
