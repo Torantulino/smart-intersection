@@ -294,7 +294,7 @@ class SmartIntersection{
     //   If we can't fit a window at that higher speed, return null
     //   so the car decelerates to stop line and waits.
 
-    const minCruiseRatio=0.6;
+    const minCruiseRatio=0.5;
     const minCruiseSpeed=desiredSpeed*minCruiseRatio;
 
     if(effectiveAhead<40){
