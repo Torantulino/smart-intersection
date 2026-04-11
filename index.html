@@ -517,7 +517,7 @@ class Car{
               const cPos=posOnPath(c.getLoop(),c.dist);
               const dx=Math.abs(cPos.x-ROAD_CENTER_X);
               const dy=Math.abs(cPos.y-ROAD_CENTER_Y);
-              if(dx<32&&dy<32)return true;
+              if(dx<24&&dy<24)return true;
             }
             return false;
           });
