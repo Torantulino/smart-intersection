@@ -281,7 +281,23 @@ class SmartIntersection{
 
     if(timeToTravel<=0)return null; // too late, must stop
 
-    const neededSpeed=effectiveAhead/timeToTravel;
+    let neededSpeed=effectiveAhead/timeToTravel;
+
+    // Cars near the stop line have tiny effectiveAhead → tiny neededSpeed.
+    // Override to use desiredSpeed since they'll accelerate from near-rest.
+    if(effectiveAhead<5 && neededSpeed<5){
+      neededSpeed=desiredSpeed;
+      // Recompute exit with proper speed
+      const adjTransit=zoneWidth/boostSpeed;
+      const adjExit=safeEnter+adjTransit;
+      // Verify adjusted window is conflict-free
+      if(this._hasConflict(otherLoop,safeStart,adjExit+CAR_ZONE_PAD)){
+        return null;
+      }
+      this._reserve(car.id,car.loop,safeStart,adjExit+CAR_ZONE_PAD);
+      this.activeNegotiations.set(car.id,{status:'stop-launch',t:simTime});
+      return{enterTime:safeEnter,exitTime:adjExit,arrivalSpeed:desiredSpeed,zoneSpeed:boostSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
+    }
 
     // Only allow speeds between near-stop and slightly above base
     if(neededSpeed<5)return null; // too slow = just stop and wait
