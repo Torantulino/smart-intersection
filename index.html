@@ -283,24 +283,40 @@ class SmartIntersection{
 
     let neededSpeed=effectiveAhead/timeToTravel;
 
-    // Cars near the stop line have tiny effectiveAhead → tiny neededSpeed.
-    // Override to use desiredSpeed since they'll accelerate from near-rest.
-    if(effectiveAhead<5 && neededSpeed<5){
+    // ─── ANTI-LIMPING STRATEGY ───
+    // Instead of crawling at slow neededSpeed to "arrive on time" at a
+    // future window, use a stop-and-wait approach:
+    // - If the needed speed is < 50% of base speed, tell the car to
+    //   stop-and-wait rather than limp. It'll re-request each frame.
+    // - If near the stop line (effectiveAhead < 20), always use
+    //   desiredSpeed as arrival speed (stop-launch pattern).
+    // - Otherwise, clamp neededSpeed to at least 60% of base speed.
+    //   If we can't fit a window at that higher speed, return null
+    //   so the car decelerates to stop line and waits.
+
+    const minCruiseRatio=0.6;
+    const minCruiseSpeed=desiredSpeed*minCruiseRatio;
+
+    if(effectiveAhead<20){
+      // Near stop line: use stop-launch pattern — drive at full speed
       neededSpeed=desiredSpeed;
-      // Recompute exit with proper speed
-      const adjTransit=zoneWidth/boostSpeed;
-      const adjExit=safeEnter+adjTransit;
+      const adjArrival=simTime+effectiveAhead/desiredSpeed;
+      const adjEnter=Math.max(safeEnter,adjArrival);
+      const adjExit=adjEnter+transitTime;
       // Verify adjusted window is conflict-free
-      if(this._hasConflict(otherLoop,safeStart,adjExit+CAR_ZONE_PAD)){
+      if(this._hasConflict(otherLoop,adjEnter-CAR_ZONE_PAD,adjExit+CAR_ZONE_PAD)){
         return null;
       }
-      this._reserve(car.id,car.loop,safeStart,adjExit+CAR_ZONE_PAD);
+      this._reserve(car.id,car.loop,adjEnter-CAR_ZONE_PAD,adjExit+CAR_ZONE_PAD);
       this.activeNegotiations.set(car.id,{status:'stop-launch',t:simTime});
-      return{enterTime:safeEnter,exitTime:adjExit,arrivalSpeed:desiredSpeed,zoneSpeed:boostSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
+      return{enterTime:adjEnter,exitTime:adjExit,arrivalSpeed:desiredSpeed,zoneSpeed:boostSpeed,stopDist:zone.dStart-STOP_LINE_MARGIN};
     }
 
-    // Only allow speeds between near-stop and slightly above base
-    if(neededSpeed<5)return null; // too slow = just stop and wait
+    if(neededSpeed<minCruiseSpeed){
+      // Would need to limp — reject, let car decelerate to stop line and wait
+      return null;
+    }
+
     if(neededSpeed>car.baseSpeed*1.3)return null; // can't speed up enough
 
     this._reserve(car.id,car.loop,safeStart,safeExit+CAR_ZONE_PAD);
@@ -448,14 +464,15 @@ class Car{
       }
 
       case STATE.APPROACHING:{
-        // Try to get clearance (one attempt)
+        // Try to get clearance (one attempt per frame)
         const result=intersection.requestClearance(this,simTime);
         if(result){
           this.clearance=result;
           this.speed=result.arrivalSpeed;
           this.state=STATE.CLEARED;
         }else{
-          // No safe window — drive to stop line, then wait
+          // No safe window — maintain base speed as long as possible,
+          // only decelerate when physics requires it to stop at stop line.
           const zone=intersection._nextZone(this);
           if(zone){
             const toStop=distAhead(loop,this.dist,zone.dStart-STOP_LINE_MARGIN);
@@ -464,10 +481,12 @@ class Car{
               this.speed=0;
               this.state=STATE.WAITING;
             }else{
-              // Decelerate toward stop line
               // v² = 2*a*d → v = sqrt(2*a*d), aim to stop at the line
-              const decelSpeed=Math.min(this.baseSpeed,Math.sqrt(2*120*Math.max(0,toStop)));
-              this.speed=Math.max(3,decelSpeed);
+              // Use a strong deceleration so cars maintain speed longer
+              const decelA=200; // px/s² — brisk but comfortable
+              const decelSpeed=Math.sqrt(2*decelA*Math.max(0,toStop));
+              // Drive at base speed until decel is needed
+              this.speed=Math.min(this.baseSpeed,decelSpeed);
             }
           }
         }
