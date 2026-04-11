@@ -297,7 +297,7 @@ class SmartIntersection{
     const minCruiseRatio=0.6;
     const minCruiseSpeed=desiredSpeed*minCruiseRatio;
 
-    if(effectiveAhead<20){
+    if(effectiveAhead<40){
       // Near stop line: use stop-launch pattern — drive at full speed
       neededSpeed=desiredSpeed;
       const adjArrival=simTime+effectiveAhead/desiredSpeed;
