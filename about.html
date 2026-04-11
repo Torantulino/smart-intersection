@@ -73,7 +73,8 @@ p{color:var(--text3);font-size:15px;line-height:1.8}
 .btn:hover{background:rgba(64,192,240,.08);border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 30px rgba(64,192,240,.1)}
 .btn.primary{background:rgba(64,192,240,.1);border-color:var(--cyan);color:var(--cyan)}
 .btn.primary:hover{background:rgba(64,192,240,.2);box-shadow:0 0 40px rgba(64,192,240,.15)}
-.scroll-hint{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px}
+.scroll-hint{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;text-decoration:none;cursor:pointer;opacity:.7;transition:opacity .3s}
+.scroll-hint:hover{opacity:1}
 .scroll-hint span{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--text4)}
 .scroll-arrow{width:20px;height:20px;border-right:1px solid var(--text4);border-bottom:1px solid var(--text4);transform:rotate(45deg);animation:bounce 2s ease-in-out infinite}
 @keyframes bounce{0%,100%{transform:translateY(0) rotate(45deg);opacity:.4}50%{transform:translateY(8px) rotate(45deg);opacity:1}}
@@ -167,10 +168,10 @@ footer a:hover{text-decoration:underline}
 <a href="./index.html" class="btn primary">Begin Simulation</a>
 <a href="#screenshots" class="btn">View Screenshots</a>
 </div>
-<div class="scroll-hint">
+<a href="#screenshots" class="scroll-hint" aria-label="Scroll down">
 <span>Scroll</span>
 <div class="scroll-arrow"></div>
-</div>
+</a>
 </section>
 
 <!-- SCREENSHOTS -->
