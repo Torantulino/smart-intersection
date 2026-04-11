@@ -659,7 +659,7 @@ class Car{
     }
     // Car body is 16px long. minGap = minimum safe center-to-center distance.
     const minGap=20; // car half-lengths (8+8=16) + 4px buffer
-    const decel=300; // px/s² braking force
+    const decel=400; // px/s² braking force
     if(minDist<minGap)return 0; // too close, full stop
     const brakeRoom=minDist-minGap;
     const maxSafeSpeed=Math.sqrt(2*decel*brakeRoom);
